@@ -1,0 +1,36 @@
+# Generated output and local tools
+/artifacts/
+/dist/
+/release/
+**/bin/
+**/obj/
+.vs/
+.idea/
+*.user
+*.suo
+# Runtime personal information
+**/data/
+**/personal-data/
+**/backups/
+**/backup-icons/
+**/website-icons/
+**/custom-icons/
+**/personal-seed.json
+**/settings.json*
+**/group-template.json
+*.lumabackup
+*.log
+*.tmp
+*.bak
+.env
+.env.*
+*.pfx
+*.key
+*.pem
+# Publish binaries as Release assets, not source files
+*.zip
+*.exe
+*.dll
+*.pdb
+# Build configuration is intentionally tracked
+!LumaDock.exe.config
