@@ -1,12 +1,12 @@
-# 蓝斗篷启动 · Blue Cloak Launcher
+﻿# 蓝斗篷启动 · Blue Cloak Launcher
 
 面向 Windows 的应用分组与快捷启动工具。支持应用、文件夹和网站，提供可选的开始菜单入口及工作空间视图。
 
-**公开版 v1.3.7**。只包含通用默认分组，不内置个人应用清单、网站、文件夹路径或分组备份。第一次运行会扫描本机应用。
+**公开版 v1.3.8**。只包含通用默认分组，不内置个人应用清单、网站、文件夹路径或分组备份。第一次运行会扫描本机应用。
 
 ## 下载与运行
 
-在本仓库 **Releases** 下载 `BlueCloakLauncher-v1.3.7-public-Windows-x64.zip`，解压到可写的固定文件夹，运行 `BlueCloakLauncher.exe`。GitHub 自动提供的 Source code 是源码，不是可直接运行的软件。
+在本仓库 **Releases** 下载 `BlueCloakLauncher-v1.3.8-public-Windows-x64.zip`，解压到可写的固定文件夹，运行 `BlueCloakLauncher.exe`。GitHub 自动提供的 Source code 是源码，不是可直接运行的软件。
 
 运行环境：Windows 10/11 x64、.NET Framework 4.8。程序无需安装 .NET SDK。发布文件未进行商业代码签名。
 
@@ -78,3 +78,12 @@ THIRD_PARTY_NOTICES.md   字体、品牌资源及贡献来源
 欢迎通过 Issues 提交问题，通过 Pull Requests 贡献修改。请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 应用代码采用 [MIT](LICENSE)，字体使用随附 OFL 授权。品牌图片及第三方资源的适用范围见 [第三方说明](THIRD_PARTY_NOTICES.md)。
+
+## v1.3.8 系统入口修复
+
+- 增加此电脑、回收站、控制面板的 Shell 命名空间入口，使用 Windows 原始高分辨率图标。
+- 计算器、记事本、截图工具、画图、获取帮助、Microsoft Store、设置、时钟、手机连接作为常用系统应用默认可见。其他附带组件仍由原开关控制。
+- 旧配置首次升级会补查已安装的系统应用；保留自定义分类、图标、置顶和明确隐藏/移除的入口。系统未安装的软件不会添加假入口。
+- 经典程序和打包应用的同一系统入口做去重。
+
+150 项离线检查通过，含真实系统图标提取；未启动系统应用、未操作桌面，也未直接更改用户配置或系统启动项。
