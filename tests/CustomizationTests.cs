@@ -1,0 +1,17 @@
+using System;
+using System.IO;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using Luma;
+
+class CustomizationTests {
+    [STAThread] static int Main(){
+        try{string directory=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"icon-tests",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(directory);string original=Path.Combine(directory,"original.png");int width=512,height=256;var pixels=new byte[width*height*4];for(int index=0;index<pixels.Length;index+=4){pixels[index]=180;pixels[index+1]=90;pixels[index+2]=30;pixels[index+3]=255;}var bitmap=BitmapSource.Create(width,height,96,96,PixelFormats.Bgra32,null,pixels,width*4);var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(bitmap));using(var stream=File.Create(original))encoder.Save(stream);
+            string copied=AppCustomization.StoreIcon(original,Path.Combine(directory,"stored"));var copiedBitmap=IconLoader.ReadImage(copied) as BitmapSource;if(copiedBitmap==null||copiedBitmap.PixelWidth!=256||copiedBitmap.PixelHeight!=128)throw new Exception("custom icon not resized proportionally");Console.WriteLine("PASS custom image copied and resized proportionally");
+            var app=new Entry{Website=true,ImagePath=original,CustomIcon=copied,Target="https://example.com"};if(((BitmapSource)IconLoader.Load(app)).PixelWidth!=256)throw new Exception("custom image not preferred");app.CustomIcon=null;if(((BitmapSource)IconLoader.Load(app)).PixelWidth!=512)throw new Exception("original image not restored");Console.WriteLine("PASS custom image precedence and original restoration");
+            File.Delete(original);if(IconLoader.ReadImage(copied)==null)throw new Exception("copied icon depends on original file");Console.WriteLine("PASS copied icon survives removal of selected source image");
+            string invalid=Path.Combine(directory,"invalid.png");File.WriteAllText(invalid,"not an image");bool rejected=false;try{AppCustomization.StoreIcon(invalid,Path.Combine(directory,"stored"));}catch(InvalidDataException){rejected=true;}if(!rejected)throw new Exception("invalid image accepted");Console.WriteLine("PASS invalid image rejected without replacing existing icon");
+            var panel=new ReorderPanel(null,null);var first=new System.Windows.Controls.Border{Width=100,Height=50};var second=new System.Windows.Controls.Border{Width=100,Height=50};var third=new System.Windows.Controls.Border{Width=100,Height=50};panel.Children.Add(first);panel.Children.Add(second);panel.Children.Add(third);panel.Measure(new System.Windows.Size(220,200));panel.Arrange(new System.Windows.Rect(0,0,220,100));panel.Children.Remove(first);panel.Children.Add(first);panel.Measure(new System.Windows.Size(220,200));panel.Arrange(new System.Windows.Rect(0,0,220,100));if(System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot(first).Top!=50)throw new Exception("wrapped reordered item has wrong destination");var transforms=first.RenderTransform as TransformGroup;bool animated=false;if(transforms!=null)foreach(var transform in transforms.Children)if(transform is TranslateTransform&&transform.HasAnimatedProperties)animated=true;if(!animated)throw new Exception("reorder translation animation not attached");Console.WriteLine("PASS wrapped reorder layout and translation animation without opening a window");return 0;
+        }catch(Exception error){Console.Error.WriteLine(error);return 1;}
+    }
+}
