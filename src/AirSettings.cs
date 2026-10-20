@@ -194,7 +194,7 @@ public static class AirSettings
 			AirStyle.Notice(result, "登录启动");
 		}, !Program.QaMode);
 		stackPanel4.Children.Add(wrapPanel3);
-		TextBlock textBlock2 = UI.Text("蓝斗篷启动  1.3.7 公开版\n启动异常会记录在 data/startup.log。", 12.0, UI.Muted);
+		TextBlock textBlock2 = UI.Text("蓝斗篷启动  1.3.8 公开版\n启动异常会记录在 data/startup.log。", 12.0, UI.Muted);
 		textBlock2.Margin = new Thickness(4.0, 0.0, 0.0, 8.0);
 		stackPanel.Children.Add(textBlock2);
 		window.Content = new ScrollViewer

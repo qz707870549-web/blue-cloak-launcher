@@ -34,6 +34,7 @@ public class Config
 	public int StartIntegrationVersion;
 	public bool? StartWithWindows;
 	public bool ShowWorkspace = true;
+	public int SystemEntriesVersion;
 
 	public List<Entry> Apps = new List<Entry>();
 
@@ -423,9 +424,11 @@ public class Config
 	{
 		foreach (Entry app in found)
 		{
+			if (CoreSystemApps.IsCore(app) && (Apps.Any(a => CoreSystemApps.Same(a, app)) || RemovedEntries.Any(a => CoreSystemApps.Same(a, app)))) continue;
 			if (!ExcludedIds.Contains(app.Id) && !Apps.Any((Entry saved) => string.Equals(saved.Id, app.Id, StringComparison.OrdinalIgnoreCase) || string.Equals(saved.Target, app.Target, StringComparison.OrdinalIgnoreCase)))
 			{
-				app.Group = GroupTemplate.Match(app, GroupRules) ?? "未分类";
+				app.Group = GroupTemplate.Match(app, GroupRules) ?? (SystemShortcuts.IsKnown(app) ? "电脑" : CoreSystemApps.IsCore(app) ? "工具" : "未分类");
+                if ((SystemShortcuts.IsKnown(app) || CoreSystemApps.IsCore(app)) && !Groups.Contains(app.Group)) Groups.Add(app.Group);
 				Apps.Add(app);
 			}
 		}
@@ -434,14 +437,16 @@ public class Config
 
 	public void MergeScan(List<Entry> found)
 	{
-		found = found.Where((Entry entry2) => !ExcludedIds.Contains(entry2.Id) && !Apps.Any((Entry saved) => saved.Manual && string.Equals(saved.Target, entry2.Target, StringComparison.OrdinalIgnoreCase))).ToList();
+		found = found.Where((Entry entry2) => !ExcludedIds.Contains(entry2.Id) && !RemovedEntries.Any(a => CoreSystemApps.Same(a, entry2)) && !Apps.Any((Entry saved) => saved.Manual && (string.Equals(saved.Target, entry2.Target, StringComparison.OrdinalIgnoreCase) || CoreSystemApps.Same(saved, entry2)))).ToList();
 		foreach (Entry app in found)
 		{
 			List<Entry> apps = Apps;
 			Func<Entry, bool> predicate = (Entry a) => !a.FavoriteFolder && !a.Website && !a.Manual && string.Equals(a.Id, app.Id, StringComparison.OrdinalIgnoreCase);
 			Entry entry = apps.FirstOrDefault(predicate) ?? Apps.FirstOrDefault((Entry a) => !a.FavoriteFolder && string.Equals(a.Target, app.Target, StringComparison.OrdinalIgnoreCase));
+			if (entry == null) entry = Apps.FirstOrDefault(a => CoreSystemApps.Same(a, app));
 			if (entry != null)
 			{
+				if (CoreSystemApps.Same(entry, app)) app.Id = entry.Id;
 				app.Group = entry.Group;
 				app.CustomName = entry.CustomName;
 				app.CustomTarget = entry.CustomTarget;
@@ -461,7 +466,8 @@ public class Config
 			}
 			else
 			{
-				app.Group = GroupTemplate.Match(app, GroupRules) ?? "未分类";
+				app.Group = GroupTemplate.Match(app, GroupRules) ?? (SystemShortcuts.IsKnown(app) ? "电脑" : CoreSystemApps.IsCore(app) ? "工具" : "未分类");
+                if ((SystemShortcuts.IsKnown(app) || CoreSystemApps.IsCore(app)) && !Groups.Contains(app.Group)) Groups.Add(app.Group);
 			}
 		}
 		found.AddRange(Apps.Where((Entry a) => a.FavoriteFolder || a.Website || a.Manual));

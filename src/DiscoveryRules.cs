@@ -42,6 +42,8 @@ public static class DiscoveryRules
 
 	public static bool IsUtility(Entry app)
 	{
+		if (CoreSystemApps.IsCore(app)) return false;
+		if (SystemShortcuts.IsKnown(app)) return false;
 		string text = app.Name.ToLowerInvariant();
 		string text2 = (app.IconPath ?? "").Replace('/', '\\').ToLowerInvariant();
 		string text3 = (app.Id ?? app.Target ?? "").Split(new string[1] { " | " }, StringSplitOptions.None)[0].ToLowerInvariant();
@@ -118,6 +120,7 @@ public static class DiscoveryRules
 
 	public static bool IsSystemApp(Entry app)
 	{
+		if (SystemShortcuts.IsKnown(app) || CoreSystemApps.IsCore(app)) return false;
 		string text = (app.Id ?? app.Target ?? "").ToLowerInvariant();
 		string value = Environment.GetFolderPath(Environment.SpecialFolder.Windows).TrimEnd('\\').ToLowerInvariant() + "\\";
 		if (text.StartsWith(value) && !text.Contains("\\installer\\"))

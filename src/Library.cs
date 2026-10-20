@@ -1442,7 +1442,8 @@ public partial class Library : Window
 		}
 		else
 		{
-			if (RenderAppFolderScope())
+			bool searching = !string.IsNullOrWhiteSpace(search.Text);
+			if (!searching && RenderAppFolderScope())
 			{
 				return;
 			}
@@ -1456,15 +1457,15 @@ public partial class Library : Window
 			visibleCards.Clear();
 			selectedCard = null;
 			IEnumerable<Entry> enumerable = p.State.Apps.Where((Entry a) => p.State.IsVisible(a) && MatchesSearch(a, search.Text));
-			if (selected == "@favorites")
+			if (!searching && selected == "@favorites")
 			{
 				enumerable = enumerable.Where((Entry a) => a.Favorite);
 			}
-			else if (selected == "@recent")
+			else if (!searching && selected == "@recent")
 			{
 				enumerable = enumerable.Where((Entry a) => a.LastLaunchTicks > 0);
 			}
-			else if (selected != "全部" && selected != "@overview")
+			else if (!searching && selected != "全部" && selected != "@overview")
 			{
 				enumerable = enumerable.Where((Entry a) => p.State.LibraryGroup(a) == selected);
 			}
@@ -1479,7 +1480,7 @@ public partial class Library : Window
 				source = enumerable2;
 			}
 			List<Entry> list = source.ToList();
-			if (selected == "@favorites" || selected == "@recent")
+			if (!searching && (selected == "@favorites" || selected == "@recent"))
 			{
 				AddSection(heading.Text, list, canOpen: false);
 			}
@@ -1487,7 +1488,7 @@ public partial class Library : Window
 			{
 				HashSet<Entry> topEntries = ((selected == "全部" && string.IsNullOrWhiteSpace(search.Text)) ? AddPinnedArea() : new HashSet<Entry>());
 				foreach (string group in from g in p.State.VisibleGroups()
-					where selected == "全部" || selected == "@overview" || selected == g
+					where searching || selected == "全部" || selected == "@overview" || selected == g
 					select g)
 				{
 					Func<Entry, bool> predicate = (Entry a) => p.State.LibraryGroup(a) == group && !topEntries.Contains(a);
@@ -2412,7 +2413,7 @@ public partial class Library : Window
 			commandBack.IsEnabled = commandHistory.CanBack;
 			commandForward.IsEnabled = commandHistory.CanForward;
 			int num = commandEntries.Count + commandGroups.Count;
-			commandSummary.Text = ((num > 0) ? ("已选 " + num + " 项") : ((CurrentAppFolder != null) ? (p.State.FolderMembers(CurrentAppFolder).Count((Entry a) => p.State.IsVisible(a) && MatchesSearch(a, search.Text)) + " 个应用") : (OverviewMac ? (p.State.VisibleGroups().Count() + " 个分组") : (p.State.Apps.Count((Entry a) => p.State.IsVisible(a) && MatchesSearch(a, search.Text) && (selected == "全部" || selected == "@overview" || (selected == "@favorites" && a.Favorite) || (selected == "@recent" && a.LastLaunchTicks > 0) || p.State.LibraryGroup(a) == selected)) + " 个项目"))));
+			commandSummary.Text = ((num > 0) ? ("已选 " + num + " 项") : ((CurrentAppFolder != null && string.IsNullOrWhiteSpace(search.Text)) ? (p.State.FolderMembers(CurrentAppFolder).Count((Entry a) => p.State.IsVisible(a) && MatchesSearch(a, search.Text)) + " 个应用") : (OverviewMac ? (p.State.VisibleGroups().Count() + " 个分组") : (p.State.Apps.Count((Entry a) => p.State.IsVisible(a) && MatchesSearch(a, search.Text) && (!string.IsNullOrWhiteSpace(search.Text) || selected == "全部" || selected == "@overview" || (selected == "@favorites" && a.Favorite) || (selected == "@recent" && a.LastLaunchTicks > 0) || p.State.LibraryGroup(a) == selected)) + " 个项目"))));
 			commandEdit.IsEnabled = commandEntries.Count == 1 || (commandGroups.Count <= 1 && CanEditCommandGroup(EditableCommandGroup));
 			commandMove.IsEnabled = commandEntries.Count > 0 || CommandFolders.Count > 0 || (!IsSelecting && CurrentAppFolder != null);
 			commandRemove.IsEnabled = commandEntries.Count > 0 || commandGroups.Any(CanEditCommandGroup) || CanEditCommandGroup(EditableCommandGroup);
@@ -3718,7 +3719,7 @@ public partial class Library : Window
 		if (breadcrumbMac != null)
 		{
 			workspaceHome.Content = p.State.ShowWorkspace ? "工作空间" : "所有应用";
-			breadcrumbMac.Text = ((CurrentAppFolder != null) ? (CurrentAppFolder.Group + " / " + CurrentAppFolder.Name) : (OverviewMac ? "分组与应用" : ((selected == "全部") ? "所有应用" : ((selected == "@favorites") ? "收藏" : ((selected == "@recent") ? "最近使用" : ((selected == "@overview") ? "搜索" : selected))))));
+			breadcrumbMac.Text = !string.IsNullOrWhiteSpace(search.Text) ? "搜索结果" : ((CurrentAppFolder != null) ? (CurrentAppFolder.Group + " / " + CurrentAppFolder.Name) : (OverviewMac ? "分组与应用" : ((selected == "全部") ? "所有应用" : ((selected == "@favorites") ? "收藏" : ((selected == "@recent") ? "最近使用" : ((selected == "@overview") ? "搜索" : selected))))));
 		}
 		StackPanel stackPanel = new StackPanel();
 		TextBlock textBlock = UI.Text("信息", 18.0, UI.Ink);

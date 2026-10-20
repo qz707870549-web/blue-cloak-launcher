@@ -195,7 +195,9 @@ public static class Scanner
 		}
 		action("文件资源管理器", "explorer.exe", Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"));
 		action("Windows 设置", "ms-settings:", null);
-		return DiscoveryRules.Normalize(result);
+		result.AddRange(SystemShortcuts.Entries());
+		result.AddRange(CoreSystemApps.Fallbacks(result));
+		return CoreSystemApps.Deduplicate(DiscoveryRules.Normalize(result));
 	}
 
 	private static IEnumerable<string> Files(string p, int depth, int max)

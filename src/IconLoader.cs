@@ -86,6 +86,12 @@ public static class IconLoader
 		{
 			return imageSource;
 		}
+		if (SystemShortcuts.IsKnown(app)) return SystemShortcuts.Icon(app);
+		if ((app.Target ?? "").StartsWith("shell:AppsFolder\\", StringComparison.OrdinalIgnoreCase))
+		{
+			imageSource = SystemShortcuts.Icon(app);
+			if (imageSource != null) return imageSource;
+		}
 		if (app.Website)
 		{
 			string text = (string.IsNullOrEmpty(app.ImagePath) ? null : Path.GetFileName(app.ImagePath));

@@ -174,6 +174,8 @@ public partial class Program : System.Windows.Application
 			GroupTemplate.Load(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "group-template.json"))?.Apply(State);
 		}
 		State.Normalize();
+		SystemShortcuts.Ensure(State);
+		CoreSystemApps.Reveal(State);
 		if (State.StartIntegrationVersion < 2)
 		{
 			State.ReplaceStartMenu = true;
@@ -258,10 +260,27 @@ public partial class Program : System.Windows.Application
 				AirStyle.Notice(protectConfig ? "配置文件无法读取，原文件已保留，本次不会覆盖保存。\n可在基础设置中导入有效备份。" : "已从备份恢复配置，应用与分类可以继续使用。", "配置恢复");
 			});
 		}
-		if (State.Apps.Count == 0 && !QaMode && !protectConfig)
+		if (!State.Apps.Any(a => !SystemShortcuts.IsKnown(a)) && !QaMode && !protectConfig)
 		{
 			Scan();
 		}
+		else if (State.SystemEntriesVersion < 1 && !QaMode && !protectConfig)
+		{
+			ImportCoreSystemApps();
+		}
+	}
+
+	private async void ImportCoreSystemApps()
+	{
+		try
+		{
+			var entries = await Task.Run(() => Scanner.Scan(new List<string>()).Where(CoreSystemApps.IsCore).ToList());
+			State.MergeImported(entries);
+			CoreSystemApps.Reveal(State);
+			State.SystemEntriesVersion = 1;
+			Refresh();
+		}
+		catch (Exception error) { CrashLog.Write("core-system-app-discovery", error); }
 	}
 
 	public async void ImportStartMenu()
@@ -294,6 +313,8 @@ public partial class Program : System.Windows.Application
 		{
 			List<Entry> found = await Task.Run(() => Scanner.Scan(State.Folders.ToList()));
 			State.MergeScan(found);
+			CoreSystemApps.Reveal(State);
+			State.SystemEntriesVersion = 1;
 			if (!State.Apps.Any((Entry x) => x.Pinned))
 			{
 				string[] array = new string[5] { "Chrome", "Edge", "微信", "QQ音乐", "资源管理器" };
