@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -30,9 +30,9 @@ class SearchTests
             var selected = typeof(Library).GetField("selected", Fields);
             Func<List<Entry>> results = () => ((List<Button>)typeof(Library).GetField("visibleCards", Fields).GetValue(window)).Select(b => b.Tag).OfType<Entry>().ToList();
             selected.SetValue(window, "设计"); window.Render(); input.Text = "计算器";
-            Check(results().SequenceEqual(new[] { calculator }), "typing in one category immediately reveals a matching app from another category");
+            Check(results().Contains(calculator)&&results().Any(a=>a.Id=="hidden"), "global search includes matching apps in visible and hidden categories");
             var summary = (TextBlock)typeof(Library).GetField("commandSummary", Fields).GetValue(window);
-            Check(summary.Text == "1 个项目", "search count reflects global results rather than the selected category");
+            Check(summary.Text == "2 个项目", "search count includes matching apps in hidden groups");
             input.Text = "数学"; Check(results().Contains(calculator), "search supports custom tags");
             input.Text = "示例网站"; Check(results().Contains(website), "search reveals website shortcuts across categories");
             input.Text = "资料文件夹"; Check(results().Contains(folder), "search reveals favorite folders across categories");
@@ -49,6 +49,24 @@ class SearchTests
             Check(results().Contains(calculator), "workspace search shows application results instead of category cards");
             var root = (FrameworkElement)window.Content; root.Measure(new Size(1000, 760)); root.Arrange(new Rect(0, 0, 1000, 760)); root.UpdateLayout();
             Check(input.ActualWidth > 40 && input.ActualHeight >= 20 && input.Text == "计算器", "search input retains readable dimensions and typed text");
+            foreach (string theme in new[] { "浅色", "深色" }) {
+                FluentTheme.Apply(theme);
+                foreach (double width in new[] { 800.0, 1000.0, 1440.0 }) {
+                    root.Measure(new Size(width,760));root.Arrange(new Rect(0,0,width,760));root.UpdateLayout();
+                    var host=(ScrollViewer)input.Template.FindName("PART_ContentHost",input);
+                    Check(host.ViewportHeight>=input.FontSize&&host.ActualWidth>40,"typed text viewport remains visible: "+theme+"/"+width);
+                    Check(((System.Windows.Media.SolidColorBrush)input.Foreground).Color==((System.Windows.Media.SolidColorBrush)UI.Ink).Color,"typed text follows theme contrast: "+theme+"/"+width);
+                    Check(((System.Windows.Media.SolidColorBrush)input.CaretBrush).Color==((System.Windows.Media.SolidColorBrush)UI.Accent).Color,"search caret follows theme contrast: "+theme+"/"+width);
+                    Check(input.MinHeight==0 && input.Padding.Top==0 && input.Padding.Bottom==0 && !input.AcceptsReturn,"single-line search has no generic vertical padding or minimum-height constraint: "+theme+"/"+width);
+                }
+            }
+            FluentTheme.Apply("浅色");state.EnsureUngroupedCategory();input.Clear();selected.SetValue(window,"未分类");window.Render();
+            var ungrouped=new Entry{Id="ungrouped-search",Name="新安装搜索测试",Target="ungrouped.exe"};state.MergeDiscovered(new List<Entry>{ungrouped});input.Text="新安装搜索";
+            Check(results().Contains(ungrouped),"newly installed ungrouped applications are immediately searchable");
+            window.Render();var nav=(StackPanel)typeof(Library).GetField("navigation",Fields).GetValue(window);
+            Check(nav.Children.OfType<Button>().Any(b=>b.Content is DockPanel&&((DockPanel)b.Content).Children.OfType<TextBlock>().Any(t=>t.Text=="未分组应用")),"ungrouped category is visible under its requested label in navigation");
+            root.Measure(new Size(1000,760));root.Arrange(new Rect(0,0,1000,760));root.UpdateLayout();
+            var preview=new System.Windows.Media.Imaging.RenderTargetBitmap(1000,760,96,96,System.Windows.Media.PixelFormats.Pbgra32);preview.Render(root);var png=new System.Windows.Media.Imaging.PngBitmapEncoder();png.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(preview));using(var stream=File.Create(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"search-v1.3.11.png")))png.Save(stream);
             Check(new System.Windows.Interop.WindowInteropHelper(window).Handle == IntPtr.Zero, "search regression checks never open a native window");
             return 0;
         }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Collections.Generic;
@@ -35,7 +35,7 @@ class PublicIntegrationTests
             Program.DataDir=Path.Combine(directory,"data");Program.ConfigPath=Path.Combine(Program.DataDir,"settings.json");Program.QaMode=true;
             var seedDir=Path.Combine(directory,"embedded-first-run");var seedPath=Path.Combine(seedDir,"settings.json");
             var seeded=BuiltInGroups.Initialize(seedPath,seedDir);
-            Check(seeded.Groups.SequenceEqual(new[]{"未分类","社交","创作","效率","娱乐","工具","网站"})&&seeded.Apps.Count==0&&seeded.Folders.Count==0&&seeded.GroupRules.Count==0,"public defaults contain generic groups and no private apps, sites or rules");
+            Check(seeded.Groups.SequenceEqual(new[]{"未分类","工具","网站"})&&seeded.Apps.Count==0&&seeded.Folders.Count==0&&seeded.GroupRules.Count==0,"public defaults contain generic groups and no private apps, sites or rules");
             Check(!Directory.Exists(Path.Combine(seedDir,"backup-icons")),"public defaults contain no private icon assets");
             seeded.Groups.Add("用户后来新增");ConfigStore.Save(seedPath,seeded);var seedBefore=File.ReadAllText(seedPath);
             Check(BuiltInGroups.Initialize(seedPath,seedDir).Groups.Contains("用户后来新增")&&File.ReadAllText(seedPath)==seedBefore,"subsequent startup never overwrites existing groups");

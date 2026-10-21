@@ -1,4 +1,4 @@
-﻿param([string]$CompilerPath = '', [switch]$SkipVerify)
+param([string]$CompilerPath = '', [switch]$SkipVerify)
 $ErrorActionPreference = 'Stop'
 if (-not $SkipVerify) { & (Join-Path $PSScriptRoot 'verify.ps1') -CompilerPath $CompilerPath }
 $build = Join-Path $PSScriptRoot 'artifacts\package-build'
@@ -13,7 +13,7 @@ foreach ($file in @('README.md','LICENSE','THIRD_PARTY_NOTICES.md')) { Copy-Item
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'docs\使用说明.md') -Destination $stage
 $output = Join-Path $PSScriptRoot 'release'
 New-Item -ItemType Directory -Path $output -Force | Out-Null
-$zip = Join-Path $output 'BlueCloakLauncher-v1.3.8-public-Windows-x64.zip'
+$zip = Join-Path $output 'BlueCloakLauncher-v1.3.21-public-Windows-x64.zip'
 Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -Force
 $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
 [IO.File]::WriteAllText(($zip + '.sha256'), ($hash + '  ' + [IO.Path]::GetFileName($zip) + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
