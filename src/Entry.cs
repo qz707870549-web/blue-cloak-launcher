@@ -35,6 +35,7 @@ public class Entry
 	public int SortOrder = int.MaxValue;
 
 	public bool TopPinned;
+	public int PinnedSortOrder = int.MaxValue;
 
 	public string CustomIcon;
 

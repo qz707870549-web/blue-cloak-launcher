@@ -63,6 +63,8 @@ public class ReorderPanel : WrapPanel
 	private readonly Program program;
 
 	private readonly Library library;
+	private readonly bool pinnedArea;
+	private readonly bool mixedCategory;
 
 	private readonly Dictionary<UIElement, Point> positions = new Dictionary<UIElement, Point>();
 
@@ -157,8 +159,10 @@ public class ReorderPanel : WrapPanel
 		};
 	}
 
-	public ReorderPanel(Program owner, Library window)
+	public ReorderPanel(Program owner, Library window, bool pinned = false, bool mixPins = false)
 	{
+		pinnedArea = pinned;
+		mixedCategory = mixPins;
 		program = owner;
 		library = window;
 		base.AllowDrop = true;
@@ -168,7 +172,15 @@ public class ReorderPanel : WrapPanel
 
 	public void AddApp(Entry app)
 	{
-		Button button = UI.AppButton(program, app, label: true);
+		Button button = pinnedArea ? UI.FluentCard(program, app, true) : UI.AppButton(program, app, label: true);
+		if (pinnedArea && button.Content is Grid content)
+		{
+			foreach (var caption in content.Children.OfType<TextBlock>().ToList()) content.Children.Remove(caption);
+			var icon = content.Children.OfType<FrameworkElement>().FirstOrDefault();
+			if (icon != null) icon.Margin = new Thickness(0);
+			button.Width = 96; button.Height = 96;
+			// The app name remains in the tooltip and accessible automation name.
+		}
 		button.Tag = app;
 		button.PreviewMouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs input)
 		{
@@ -338,7 +350,7 @@ public class ReorderPanel : WrapPanel
 		}
 		if (button != null && button != current.Button)
 		{
-			if (!(button.Tag is Entry entry) || entry.TopPinned != current.Entry.TopPinned)
+			if (!(button.Tag is Entry entry) || (!mixedCategory && entry.TopPinned != current.Entry.TopPinned))
 			{
 				input.Effects = DragDropEffects.None;
 				input.Handled = true;
@@ -369,9 +381,9 @@ public class ReorderPanel : WrapPanel
 		{
 			List<Entry> reordered = (from button in base.Children.OfType<Button>()
 				select button.Tag as Entry into entry
-				where entry != null && entry.TopPinned == current.Entry.TopPinned
+				where entry != null && (mixedCategory || entry.TopPinned == current.Entry.TopPinned)
 				select entry).ToList();
-			if (program.State.SaveCategoryOrder(reordered))
+			if (pinnedArea ? program.State.SavePinnedOrder(reordered) : program.State.SaveCategoryOrder(reordered, mixedCategory))
 			{
 				current.Committed = true;
 				program.Save();

@@ -9,6 +9,15 @@ namespace Luma;
 
 public static class DesktopPlacement
 {
+	public static bool CenteredTaskbar()
+	{
+		try
+		{
+			using (var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"))
+				return Convert.ToInt32(key?.GetValue("TaskbarAl", 0)) == 1;
+		}
+		catch { return false; }
+	}
 	[DllImport("user32.dll")]
 	private static extern IntPtr MonitorFromPoint(System.Drawing.Point point, uint flags);
 
@@ -60,7 +69,7 @@ public static class DesktopPlacement
 				}
 			}
 			System.Windows.Size size = WindowSizePolicy.Normalize(config.LibraryWidth, config.LibraryHeight);
-			Rect rect = Bounds(new Rect(workingArea.Left, workingArea.Top, workingArea.Width, workingArea.Height), new System.Windows.Point(point.X, point.Y), button == null, button != null && button.Top < workingArea.Top, num, size.Width, size.Height);
+			Rect rect = Bounds(new Rect(workingArea.Left, workingArea.Top, workingArea.Width, workingArea.Height), new System.Windows.Point(point.X, point.Y), button == null || CenteredTaskbar(), button != null && button.Top < workingArea.Top, num, size.Width, size.Height);
 			IntPtr handle = new WindowInteropHelper(window).Handle;
 			SetWindowPos(handle, IntPtr.Zero, (int)Math.Round(rect.Left), (int)Math.Round(rect.Top), 0, 0, 21u);
 			window.MinWidth = Math.Min(500.0, rect.Width / num);

@@ -31,10 +31,69 @@ public class Config
 
 	public bool ReplaceStartMenu;
 	public bool WinKeyOpensLibrary = true;
+	public bool FullscreenWinCompatibility = true; // Legacy preference; Win capture now uses one policy in every window mode.
 	public int StartIntegrationVersion;
 	public bool? StartWithWindows;
 	public bool ShowWorkspace = true;
+	public string WorkspaceFolderStyle = "layered";
+	public bool ShowAllAppsEntry = true;
+	public bool IncludeHiddenInAllApps;
+	public bool IsLibraryEntryVisible(Entry app, bool searching, bool allApplications) =>
+		app != null && (searching || (allApplications && IncludeHiddenInAllApps) || IsVisible(app));
+	public IEnumerable<string> LibraryGroups(bool includeHidden) => includeHidden
+		? Groups.Concat(Apps.Select(LibraryGroup)).Distinct()
+		: VisibleGroups();
+
+	public bool HideDesktopIcons;
+	public int DefaultGroupCleanupVersion;
+
+	public void RemoveLegacyDefaultGroups()
+	{
+		if (DefaultGroupCleanupVersion >= 1) return;
+		var removed = new HashSet<string>(new[] { "社交", "创作", "娱乐", "效率" });
+		if (!Groups.Contains("未分类")) Groups.Add("未分类");
+		foreach (var app in Apps.Where(a => removed.Contains(a.Group))) app.Group = "未分类";
+		foreach (var folder in AppFolders.Where(a => removed.Contains(a.Group))) folder.Group = "未分类";
+		Groups.RemoveAll(removed.Contains);
+		HiddenGroups.RemoveAll(removed.Contains);
+		CollapsedGroups.RemoveAll(removed.Contains);
+		GroupRules.RemoveAll(rule => removed.Contains(rule.Group));
+		DefaultGroupCleanupVersion = 1;
+	}
+
+	public bool IsGroupEnabled(string group) => !HiddenGroups.Contains(group) &&
+		(group != "系统附带应用" || ShowSystemApps) && (group != "软件配套工具" || ShowUtilities);
+
+	public void SetGroupEnabled(string group, bool enabled)
+	{
+		HiddenGroups.Remove(group);
+		if (!enabled) HiddenGroups.Add(group);
+		if (group == "系统附带应用") ShowSystemApps = enabled;
+		if (group == "软件配套工具") ShowUtilities = enabled;
+	}
+	// Recoverable originals of automatically merged scan duplicates, never deletion records.
+	public List<Entry> DuplicateEntries = new List<Entry>();
 	public int SystemEntriesVersion;
+	public int UngroupedCategoryVersion;
+	public static string GroupDisplayName(string name) => name == "未分类" ? "未分组应用" : name;
+	public void EnsureUngroupedCategory()
+	{
+		if (!Groups.Contains("未分类")) Groups.Add("未分类");
+		if (UngroupedCategoryVersion < 1) { HiddenGroups.Remove("未分类"); UngroupedCategoryVersion = 1; }
+	}
+	public int MergeDiscovered(List<Entry> found)
+	{
+		int added = 0;
+		foreach (var app in found)
+		{
+			if (ExcludedIds.Any(id => String.Equals(id, app.Id, StringComparison.OrdinalIgnoreCase)) || RemovedEntries.Any(a => String.Equals(a.Id, app.Id, StringComparison.OrdinalIgnoreCase) || String.Equals(a.Target, app.Target, StringComparison.OrdinalIgnoreCase) || CoreSystemApps.Same(a, app))) continue;
+			if (Apps.Any(a => String.Equals(a.Id, app.Id, StringComparison.OrdinalIgnoreCase) || String.Equals(a.Target, app.Target, StringComparison.OrdinalIgnoreCase) || CoreSystemApps.Same(a, app) || ApplicationIdentity.Same(a, app))) continue;
+			app.Group = GroupTemplate.Match(app, GroupRules) ?? (SystemShortcuts.IsKnown(app) ? "电脑" : CoreSystemApps.IsCore(app) ? "工具" : "未分类");
+			if (!Groups.Contains(app.Group)) Groups.Add(app.Group);
+			Apps.Add(app); added++;
+		}
+		Normalize(); return added;
+	}
 
 	public List<Entry> Apps = new List<Entry>();
 
@@ -217,6 +276,7 @@ public class Config
 
 	public void Normalize()
 	{
+		if (WorkspaceFolderStyle != "layered" && WorkspaceFolderStyle != "minimal") WorkspaceFolderStyle = "layered";
 		Apps = (Apps ?? new List<Entry>()).Where((Entry a) => a != null).ToList();
 		RemovedEntries = (RemovedEntries ?? new List<Entry>()).Where((Entry a) => a != null).ToList();
 		GroupRules = (GroupRules ?? new List<GroupRule>()).Where((GroupRule r) => r != null).ToList();
@@ -319,6 +379,28 @@ public class Config
 			Groups.Add("软件配套工具");
 		}
 		NormalizeAppFolders();
+		MergeDuplicateApplications();
+	}
+
+	private void MergeDuplicateApplications()
+	{
+		if (DuplicateEntries == null) DuplicateEntries = new List<Entry>();
+		foreach (var family in Apps.Where(a => ApplicationIdentity.Key(a) != null).GroupBy(ApplicationIdentity.Key).ToList())
+		{
+			var ordered = family.OrderByDescending(a => a.Group != "未分类")
+				.ThenByDescending(a => !string.IsNullOrEmpty(a.CustomIcon) || !string.IsNullOrEmpty(a.CustomName))
+				.ThenByDescending(a => a.TopPinned).ToList();
+			var keep = ordered[0];
+			foreach (var other in ordered.Skip(1))
+			{
+				// Separate user categories and virtual folders can be intentional.
+				if (keep.Group != other.Group && keep.Group != "未分类" && other.Group != "未分类") continue;
+				if (!string.IsNullOrEmpty(keep.FolderId) && !string.IsNullOrEmpty(other.FolderId) && keep.FolderId != other.FolderId) continue;
+				ApplicationIdentity.MergeMetadata(keep, other);
+				DuplicateEntries.Add(other);
+				Apps.Remove(other);
+			}
+		}
 	}
 
 	private static double FiniteRange(double value, double min, double max, double fallback)
@@ -360,7 +442,7 @@ public class Config
 			select app).ThenBy((Entry app) => app.Name, StringComparer.CurrentCultureIgnoreCase);
 	}
 
-	public bool SaveCategoryOrder(IList<Entry> reordered)
+	public bool SaveCategoryOrder(IList<Entry> reordered, bool ignorePinPartition = false)
 	{
 		if (reordered == null || reordered.Count < 2 || reordered.Any((Entry app) => app == null || !Apps.Contains(app)) || reordered.Distinct().Count() != reordered.Count)
 		{
@@ -368,11 +450,12 @@ public class Config
 		}
 		string group = LibraryGroup(reordered[0]);
 		bool pinned = reordered[0].TopPinned;
-		if (reordered.Any((Entry app) => LibraryGroup(app) != group || app.TopPinned != pinned))
+		if (reordered.Any((Entry app) => LibraryGroup(app) != group || (!ignorePinPartition && app.TopPinned != pinned)))
 		{
 			return false;
 		}
-		List<Entry> list = OrderedEntries(Apps.Where((Entry app) => LibraryGroup(app) == group && app.TopPinned == pinned)).ToList();
+		var entries = Apps.Where((Entry app) => LibraryGroup(app) == group && (ignorePinPartition || app.TopPinned == pinned));
+		List<Entry> list = (ignorePinPartition ? entries.OrderBy(a => a.SortOrder).ThenBy(a => a.Name, StringComparer.CurrentCultureIgnoreCase) : OrderedEntries(entries)).ToList();
 		HashSet<Entry> hashSet = new HashSet<Entry>(reordered);
 		int num = 0;
 		for (int num2 = 0; num2 < list.Count; num2++)
@@ -386,6 +469,22 @@ public class Config
 		{
 			list[num3].SortOrder = num3;
 		}
+		return true;
+	}
+
+	public IEnumerable<Entry> OrderedPins() => Apps.Where(a => a.TopPinned)
+		.OrderBy(a => a.PinnedSortOrder).ThenBy(a => a.SortOrder)
+		.ThenBy(a => a.Name, StringComparer.CurrentCultureIgnoreCase);
+
+	public bool SavePinnedOrder(IList<Entry> reordered)
+	{
+		if (reordered == null || reordered.Count < 2 || reordered.Distinct().Count() != reordered.Count ||
+			reordered.Any(a => a == null || !Apps.Contains(a) || !a.TopPinned)) return false;
+		var all = OrderedPins().ToList();
+		var members = new HashSet<Entry>(reordered);
+		int index = 0;
+		for (int i = 0; i < all.Count; i++) if (members.Contains(all[i])) all[i] = reordered[index++];
+		for (int i = 0; i < all.Count; i++) all[i].PinnedSortOrder = i;
 		return true;
 	}
 
@@ -461,6 +560,7 @@ public class Config
 				app.FolderId = entry.FolderId;
 				app.Pinned = entry.Pinned;
 				app.TopPinned = entry.TopPinned;
+				app.PinnedSortOrder = entry.PinnedSortOrder;
 				app.CustomIcon = entry.CustomIcon;
 				app.SortOrder = entry.SortOrder;
 			}

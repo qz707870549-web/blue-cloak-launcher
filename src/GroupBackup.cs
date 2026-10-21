@@ -26,12 +26,34 @@ public static class GroupBackup
     public static Config Clone(Config config) => Json().Deserialize<Config>(Json().Serialize(config));
     static string Hash(byte[] data) { using (var sha = SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(data)).Replace("-", ""); }
     static bool Equal(string a, string b) => !String.IsNullOrEmpty(a) && !String.IsNullOrEmpty(b) && String.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+    // Merged originals are recovery data too; their images must travel with the backup.
+    static IEnumerable<Entry> BackupEntries(Config config) => config.Apps.Concat(config.DuplicateEntries ?? new List<Entry>()).Where(entry => entry != null);
+    static string ArchiveKey(Entry entry)
+    {
+        var json = Json();
+        var copy = json.Deserialize<Entry>(json.Serialize(entry));
+        copy.CustomIcon = AssetIdentity(copy.CustomIcon);
+        copy.ImagePath = AssetIdentity(copy.ImagePath);
+        // JavaScriptSerializer may enumerate reflected fields in a different order
+        // after its metadata cache changes. Archive identity must ignore that order.
+        var fields = (Dictionary<string, object>)json.DeserializeObject(json.Serialize(copy));
+        return json.Serialize(new SortedDictionary<string, object>(fields, StringComparer.Ordinal));
+    }
+    static string AssetIdentity(string path)
+    {
+        if (String.IsNullOrEmpty(path)) return path;
+        string normalized = path.Replace('\\', '/');
+        if (normalized.StartsWith("backup-icons/", StringComparison.OrdinalIgnoreCase) &&
+            Regex.IsMatch(normalized.Substring(13), "^[A-F0-9]{64}\\.png$", RegexOptions.IgnoreCase))
+            return AssetPrefix + Path.GetFileNameWithoutExtension(normalized).ToUpperInvariant();
+        return path;
+    }
 
     public static void Export(string path, Config current, string dataDirectory)
     {
         var document = new GroupBackupDocument { Data = Clone(current) };
         document.Data.Normalize();
-        foreach (var entry in document.Data.Apps)
+        foreach (var entry in BackupEntries(document.Data))
         {
             entry.CustomIcon = Collect(entry.CustomIcon, "custom-icons", dataDirectory, document);
             if (entry.Website) entry.ImagePath = Collect(entry.ImagePath, "website-icons", dataDirectory, document);
@@ -98,7 +120,7 @@ public static class GroupBackup
                 if (decoder.Frames.Any(frame => frame.PixelWidth > 4096 || frame.PixelHeight > 4096)) throw new InvalidDataException("备份图标尺寸过大。");
             }
         }
-        foreach (var entry in document.Data.Apps) foreach (string reference in new[] { entry.CustomIcon, entry.ImagePath })
+        foreach (var entry in BackupEntries(document.Data)) foreach (string reference in new[] { entry.CustomIcon, entry.ImagePath })
             if (reference != null && reference.StartsWith(AssetPrefix) && !document.Assets.ContainsKey(reference.Substring(AssetPrefix.Length))) throw new InvalidDataException("备份缺少引用的图标。");
         document.Data.Normalize();
         return document;
@@ -112,6 +134,9 @@ public static class GroupBackup
         result.CollapsedGroups = source.CollapsedGroups.Concat(result.CollapsedGroups.Where(group => !source.Groups.Contains(group))).Distinct().ToList();
         result.GroupRules = source.GroupRules.Concat(GroupTemplate.Export(source).Rules).Concat(result.GroupRules).Where(rule => rule != null).GroupBy(rule => String.Join("\u001f", GroupTemplate.NormalizeName(rule.Name), rule.Executable ?? "", rule.StableId ?? "", rule.Group ?? ""), StringComparer.OrdinalIgnoreCase).Select(group => group.First()).ToList();
         result.AppFolders = source.AppFolders.Concat(result.AppFolders.Where(folder => !source.AppFolders.Any(saved => saved.Id == folder.Id))).ToList();
+        result.DuplicateEntries = source.DuplicateEntries.Concat(result.DuplicateEntries)
+            .Where(entry => entry != null).GroupBy(ArchiveKey)
+            .Select(group => group.First()).ToList();
         foreach (var entry in source.Apps)
         {
             var existing = result.Apps.FirstOrDefault(a => Equal(a.Id, entry.Id)) ?? result.Apps.FirstOrDefault(a => Equal(a.Target, entry.Target));
@@ -125,6 +150,7 @@ public static class GroupBackup
             {
                 existing.Group = entry.Group; existing.FolderId = entry.FolderId; existing.Favorite = entry.Favorite;
                 existing.TopPinned = entry.TopPinned; existing.Pinned = entry.Pinned; existing.SortOrder = entry.SortOrder;
+                existing.PinnedSortOrder = entry.PinnedSortOrder;
                 existing.CustomName = entry.CustomName; existing.Tags = entry.Tags;
                 if ((existing.Website && entry.Website) || (existing.FavoriteFolder && entry.FavoriteFolder) || (Equal(existing.Id, entry.Id) && !String.IsNullOrEmpty(entry.CustomTarget)))
                 { existing.Target = entry.Target; existing.CustomTarget = entry.CustomTarget; }
@@ -151,7 +177,7 @@ public static class GroupBackup
             string directory = Path.Combine(dataDirectory, "backup-icons"); Directory.CreateDirectory(directory);
             string target = Path.Combine(directory, asset.Key + ".png"); File.WriteAllBytes(target, Convert.FromBase64String(asset.Value));
         }
-        foreach (var entry in merged.Apps)
+        foreach (var entry in BackupEntries(merged))
         {
             if (entry.CustomIcon != null && entry.CustomIcon.StartsWith(AssetPrefix)) entry.CustomIcon = Path.Combine("backup-icons", entry.CustomIcon.Substring(AssetPrefix.Length) + ".png");
             if (entry.ImagePath != null && entry.ImagePath.StartsWith(AssetPrefix)) entry.ImagePath = Path.Combine("backup-icons", entry.ImagePath.Substring(AssetPrefix.Length) + ".png");

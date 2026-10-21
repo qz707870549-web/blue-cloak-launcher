@@ -24,4 +24,5 @@ public sealed class WinKeyPolicy
         return toggle;
     }
     public void Cancel() { candidate = false; }
+    public void Reset() { held.Clear(); candidate = false; }
 }

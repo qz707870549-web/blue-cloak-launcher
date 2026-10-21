@@ -4,6 +4,7 @@ namespace Luma;
 
 public static class WindowSizePolicy
 {
+	public static bool HideForSystemCommand(long command) => (command & 0xFFF0) == 0xF020;
 	private static bool Valid(double value, double minimum)
 	{
 		if (!double.IsNaN(value) && !double.IsInfinity(value) && value >= minimum)

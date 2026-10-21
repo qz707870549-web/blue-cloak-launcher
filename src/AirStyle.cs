@@ -15,10 +15,11 @@ namespace Luma;
 
 public static class AirStyle
 {
-	public static readonly FontFamily Font = (File.Exists(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "assets/fonts/NotoSansSC-Regular.ttf")) ? new FontFamily(new Uri(AppDomain.CurrentDomain.BaseDirectory), "./assets/fonts/#Noto Sans SC") : new FontFamily("Microsoft YaHei UI"));
+	public static readonly FontFamily Font = new FontFamily("Segoe UI, Microsoft YaHei UI");
 
 	private static readonly Dictionary<string, string> Symbols = new Dictionary<string, string>
 	{
+		{ "tool", "M14.7,6.3 A1,1 0 0 0 14.7,7.7 L16.3,9.3 A1,1 0 0 0 17.7,9.3 L21.5,5.5 A6,6 0 0 1 13.6,13.4 L6.5,20.5 A2.1,2.1 0 0 1 3.5,17.5 L10.6,10.4 A6,6 0 0 1 18.5,2.5 Z" },
 		{ "grid", "M5,3 H9 Q10,3 10,4 V9 Q10,10 9,10 H4 Q3,10 3,9 V4 Q3,3 5,3 M16,3 H20 Q21,3 21,4 V9 Q21,10 20,10 H15 Q14,10 14,9 V4 Q14,3 16,3 M5,14 H9 Q10,14 10,15 V20 Q10,21 9,21 H4 Q3,21 3,20 V15 Q3,14 5,14 M16,14 H20 Q21,14 21,15 V20 Q21,21 20,21 H15 Q14,21 14,20 V15 Q14,14 16,14" },
 		{ "folder", "M3,7 Q3,5 5,5 H9 L11,7 H19 Q21,7 21,9 V19 Q21,21 19,21 H5 Q3,21 3,19 Z" },
 		{ "bookmark", "M7,3 H17 Q19,3 19,5 V21 L12,17 5,21 V5 Q5,3 7,3 Z" },

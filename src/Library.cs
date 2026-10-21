@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -43,7 +43,8 @@ public partial class Library : Window
 		Background = Brushes.Transparent,
 		BorderThickness = new Thickness(0.0),
 		VerticalContentAlignment = VerticalAlignment.Center,
-		Padding = new Thickness(0.0, 10.0, 10.0, 10.0)
+		Padding = new Thickness(0.0, 0.0, 4.0, 0.0),
+		MinHeight = 0
 	};
 
 	private StackPanel grid = new StackPanel();
@@ -271,9 +272,29 @@ public partial class Library : Window
 		}
 	}
 
-	public void FocusSearch()
+	public void FocusSearch(bool expand = true)
 	{
+		if (commandSearchFrame != null && expand) commandSearchFrame.Visibility = Visibility.Visible;
 		search.Focus();
+	}
+
+	private readonly List<FrameworkElement> suspendedTooltips = new List<FrameworkElement>();
+	private void UpdateTransientVisibility(bool visible)
+	{
+		if (visible)
+		{
+			foreach (var element in suspendedTooltips) ToolTipService.SetIsEnabled(element, true);
+			suspendedTooltips.Clear();
+			return;
+		}
+		if (openContext != null) openContext.IsOpen = false;
+		foreach (var element in FindElementsMac<FrameworkElement>(Content as DependencyObject))
+		{
+			if (ToolTipService.GetToolTip(element) == null || !ToolTipService.GetIsEnabled(element)) continue;
+			if (ToolTipService.GetToolTip(element) is System.Windows.Controls.ToolTip tooltip) tooltip.IsOpen = false;
+			ToolTipService.SetIsEnabled(element, false);
+			suspendedTooltips.Add(element);
+		}
 	}
 
 	public void ChooseIcon(Entry app)
@@ -519,7 +540,8 @@ public partial class Library : Window
 	{
 		Window w = new Window
 		{
-			Owner = (System.Windows.Application.Current as Program).Library,
+			Owner = System.Windows.Application.Current.Windows.Cast<Window>().FirstOrDefault(active => active.IsActive)
+				?? (System.Windows.Application.Current as Program).Library,
 			Topmost = true,
 			Title = title,
 			Width = 380.0,
@@ -593,6 +615,18 @@ public partial class Library : Window
 		render = delegate
 		{
 			body.Children.Clear();
+			var allEntry = new System.Windows.Controls.CheckBox {
+				Content = "显示所有应用入口", IsChecked = p.State.ShowAllAppsEntry, Margin = new Thickness(0, 0, 0, 12) };
+			allEntry.Click += delegate { p.State.ShowAllAppsEntry = allEntry.IsChecked == true; p.Refresh(); };
+			body.Children.Add(allEntry);
+			var hiddenInAll = new System.Windows.Controls.CheckBox {
+				Content = "所有应用中显示隐藏分组的应用", IsChecked = p.State.IncludeHiddenInAllApps, Margin = new Thickness(0, 0, 0, 12) };
+			hiddenInAll.Click += delegate { p.State.IncludeHiddenInAllApps = hiddenInAll.IsChecked == true; p.Refresh(); };
+			body.Children.Add(hiddenInAll);
+			body.Children.Add(UI.Button("新建分类", delegate {
+				NewGroup();
+				render();
+			}));
 			body.Children.Add(new TextBlock
 			{
 				Text = "勾选显示；隐藏后可在设置中重新打开。上下箭头调整顺序。",
@@ -667,17 +701,13 @@ public partial class Library : Window
 				System.Windows.Controls.CheckBox visible = new System.Windows.Controls.CheckBox
 				{
 					Content = name,
-					IsChecked = !p.State.HiddenGroups.Contains(name),
+					IsChecked = p.State.IsGroupEnabled(name),
 					VerticalAlignment = VerticalAlignment.Center,
 					FontSize = 13.0
 				};
 				visible.Click += delegate
 				{
-					p.State.HiddenGroups.Remove(name);
-					if (visible.IsChecked != true)
-					{
-						p.State.HiddenGroups.Add(name);
-					}
+					p.State.SetGroupEnabled(name, visible.IsChecked == true);
 					p.Refresh();
 				};
 				dockPanel.Children.Add(visible);
@@ -863,7 +893,7 @@ public partial class Library : Window
 		UI.Window(this);
 		base.Title = "蓝斗篷启动";
 		base.Topmost = true;
-		base.ShowInTaskbar = true;
+		base.ShowInTaskbar = false;
 		base.Width = p.State.LibraryWidth;
 		base.Height = p.State.LibraryHeight;
 		base.MinWidth = 500.0;
@@ -902,23 +932,6 @@ public partial class Library : Window
 			Modal(Settings);
 		};
 		children.Add(SideButton("\ue713", "设置", action));
-		stackPanel.Children.Add(SideButton("\ue790", "管理分类", delegate
-		{
-			Modal(Manage);
-		}));
-		System.Windows.Controls.Button button = null;
-		button = (themeButton = SideButton("\ue708", "主题 · " + p.State.ThemeMode, delegate
-		{
-			string[] array = new string[3] { "系统", "浅色", "深色" };
-			p.State.ThemeMode = array[(Array.IndexOf(array, p.State.ThemeMode) + 1) % 3];
-			FluentTheme.Apply(p.State.ThemeMode);
-			p.Save();
-			RefreshThemeLabel();
-			Render();
-			p.AppearanceChanged();
-		}));
-		button.ToolTip = "点击切换：跟随系统 / 浅色 / 深色";
-		stackPanel.Children.Add(button);
 		DockPanel.SetDock(stackPanel, System.Windows.Controls.Dock.Bottom);
 		dockPanel.Children.Add(stackPanel);
 		dockPanel.Children.Add(new ScrollViewer
@@ -981,7 +994,7 @@ public partial class Library : Window
 		stackPanel3.Margin = new Thickness(0.0, 10.0, 12.0, 0.0);
 		Grid.SetColumnSpan(stackPanel3, 3);
 		System.Windows.Controls.Panel.SetZIndex(stackPanel3, 10);
-		shell.Children.Add(stackPanel3);
+		// Caption actions are available through keyboard/system menus, not visible buttons.
 		subtitle = UI.Text("", 12.0, UI.Muted);
 		subtitle.Margin = new Thickness(0.0, 0.0, 0.0, 16.0);
 		stackPanel2.Children.Add(subtitle);
@@ -1021,17 +1034,26 @@ public partial class Library : Window
 		TextBlock textBlock2 = UI.Text("Ctrl K", 11.0, UI.Muted);
 		textBlock2.Margin = new Thickness(8.0);
 		DockPanel.SetDock(textBlock2, System.Windows.Controls.Dock.Right);
-		dockPanel5.Children.Add(textBlock2);
 		Grid grid = new Grid
 		{
 			ClipToBounds = true
 		};
 		grid.Children.Add(search);
-		TextBlock hint = UI.Text("搜索应用、文件夹、网站或标签…", 13.0, UI.Muted);
+		TextBlock hint = UI.Text("", 13.0, UI.Muted);
 		hint.IsHitTestVisible = false;
 		hint.TextTrimming = TextTrimming.CharacterEllipsis;
 		grid.Children.Add(hint);
 		search.FontSize = 13.0;
+		search.Style = null;
+		var inputHost = new FrameworkElementFactory(typeof(ScrollViewer), "PART_ContentHost");
+		inputHost.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+		inputHost.SetValue(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Hidden);
+		inputHost.SetValue(ScrollViewer.VerticalScrollBarVisibilityProperty, ScrollBarVisibility.Disabled);
+		search.Template = new ControlTemplate(typeof(System.Windows.Controls.TextBox)) { VisualTree = inputHost };
+		search.SetResourceReference(System.Windows.Controls.Control.ForegroundProperty, "Luma.Ink");
+		search.SetResourceReference(System.Windows.Controls.TextBox.CaretBrushProperty, "Luma.Accent");
+		dockPanel5.Background = Brushes.Transparent;
+		dockPanel5.PreviewMouseLeftButtonDown += delegate { FocusSearch(); };
 		search.TextChanged += delegate
 		{
 			hint.Visibility = ((!string.IsNullOrEmpty(search.Text)) ? Visibility.Collapsed : Visibility.Visible);
@@ -1113,6 +1135,13 @@ public partial class Library : Window
 		{
 			WindowState num = observedWindowState;
 			observedWindowState = base.WindowState;
+			if (base.WindowState == WindowState.Minimized)
+			{
+				// A frameless, taskbar-hidden iconic window can leave a small white caption on the desktop.
+				Hide();
+				CrashLog.Write("minimize-hidden");
+				return;
+			}
 			if (base.WindowState != WindowState.Minimized)
 			{
 				PreviousWindowState = base.WindowState;
@@ -1124,6 +1153,7 @@ public partial class Library : Window
 		};
 		base.IsVisibleChanged += delegate
 		{
+			UpdateTransientVisibility(base.IsVisible);
 			CrashLog.Write("visibility-" + base.IsVisible);
 		};
 		base.Closing += delegate
@@ -1166,6 +1196,13 @@ public partial class Library : Window
 
 	private IntPtr FluentChromeMessages(IntPtr hwnd, int message, IntPtr parameter, IntPtr data, ref bool handled)
 	{
+		if (message == 0x112 && WindowSizePolicy.HideForSystemCommand(parameter.ToInt64()))
+		{
+			// Swallow SC_MINIMIZE before Windows draws an iconic caption on the desktop.
+			p.DismissLibrary();
+			handled = true;
+			return IntPtr.Zero;
+		}
 		if (message == 561)
 		{
 			resizing = true;
@@ -1223,7 +1260,7 @@ public partial class Library : Window
 		}
 		if (commandSearchFrame != null)
 		{
-			commandSearchFrame.Width = ((width < 1000.0) ? 160 : 248);
+			commandSearchFrame.Width = Math.Max(48, Math.Min(248, width - leftColumn.Width.Value - 134));
 		}
 	}
 
@@ -1289,13 +1326,14 @@ public partial class Library : Window
 			selected = "全部";
 		}
 		navigation.Children.Clear();
+		if (!p.State.ShowAllAppsEntry && selected == "全部") selected = p.State.ShowWorkspace ? "@overview" : (p.State.VisibleGroups().FirstOrDefault() ?? "全部");
 		if (!p.State.ShowWorkspace && selected == "@overview") selected = "全部";
 		if (p.State.ShowWorkspace) AddNavigation("@overview", "工作空间", "\ue8b7", p.State.VisibleGroups().Count());
-		AddNavigation("全部", "所有应用", "\ue80a", p.State.Apps.Count(p.State.IsVisible));
+		if (p.State.ShowAllAppsEntry) AddNavigation("全部", "所有应用", "\ue80a", p.State.Apps.Count(a => p.State.IsLibraryEntryVisible(a, false, true)));
 		foreach (string item in p.State.VisibleGroups())
 		{
 			string name = item;
-			System.Windows.Controls.Button b = AddNavigation(name, name, "\ue8b7", p.State.Apps.Count((Entry a) => p.State.IsVisible(a) && p.State.LibraryGroup(a) == name));
+			System.Windows.Controls.Button b = AddNavigation(name, Config.GroupDisplayName(name), "\ue8b7", p.State.Apps.Count((Entry a) => p.State.IsVisible(a) && p.State.LibraryGroup(a) == name));
 			b.AllowDrop = true;
 			b.PreviewMouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs input)
 			{
@@ -1357,19 +1395,6 @@ public partial class Library : Window
 				}
 			};
 		}
-		navigation.Children.Add(SideButton("\ue710", "新建分类", delegate
-		{
-			Modal(NewGroup);
-		}));
-		navigation.Children.Add(new Border
-		{
-			Height = 1.0,
-			Background = FluentTheme.Line,
-			Margin = new Thickness(8.0, 16.0, 8.0, 12.0)
-		});
-		AddNavigation("@favorites", "收藏", "\ue734", p.State.Apps.Count((Entry a) => a.Favorite && p.State.IsVisible(a)));
-		AddNavigation("@recent", "最近使用", "\ue823", p.State.Apps.Count((Entry a) => a.LastLaunchTicks > 0 && p.State.IsVisible(a)));
-		navigation.Children.Add(SideButton("\ue896", "下载", OpenDownloads));
 		heading.Text = ((selected == "全部") ? "我的应用" : ((selected == "@favorites") ? "收藏" : ((selected == "@recent") ? "最近使用" : selected)));
 		subtitle.Text = p.State.Apps.Count(p.State.IsVisible) + " 个快捷入口 · " + p.State.VisibleGroups().Count() + " 个分类";
 		RenderGrid();
@@ -1430,6 +1455,9 @@ public partial class Library : Window
 		return true;
 	}
 
+	private bool EntryVisibleInCurrentView(Entry app) => p.State.IsLibraryEntryVisible(app,
+		!string.IsNullOrWhiteSpace(search.Text), selected == "全部" || CurrentAppFolder != null);
+
 	private void RenderGrid()
 	{
 		if (!initialized)
@@ -1456,7 +1484,7 @@ public partial class Library : Window
 			folderButtonsMac.Clear();
 			visibleCards.Clear();
 			selectedCard = null;
-			IEnumerable<Entry> enumerable = p.State.Apps.Where((Entry a) => p.State.IsVisible(a) && MatchesSearch(a, search.Text));
+			IEnumerable<Entry> enumerable = p.State.Apps.Where((Entry a) => EntryVisibleInCurrentView(a) && MatchesSearch(a, search.Text));
 			if (!searching && selected == "@favorites")
 			{
 				enumerable = enumerable.Where((Entry a) => a.Favorite);
@@ -1472,7 +1500,9 @@ public partial class Library : Window
 			IEnumerable<Entry> source;
 			if (!(selected == "@recent"))
 			{
-				source = p.State.OrderedEntries(enumerable);
+				source = selected == "全部" || searching
+					? enumerable.OrderBy(a => a.SortOrder).ThenBy(a => a.Name, StringComparer.CurrentCultureIgnoreCase)
+					: p.State.OrderedEntries(enumerable);
 			}
 			else
 			{
@@ -1486,8 +1516,8 @@ public partial class Library : Window
 			}
 			else
 			{
-				HashSet<Entry> topEntries = ((selected == "全部" && string.IsNullOrWhiteSpace(search.Text)) ? AddPinnedArea() : new HashSet<Entry>());
-				foreach (string group in from g in p.State.VisibleGroups()
+				HashSet<Entry> topEntries = new HashSet<Entry>();
+				foreach (string group in from g in p.State.LibraryGroups(searching || (selected == "全部" && p.State.IncludeHiddenInAllApps))
 					where searching || selected == "全部" || selected == "@overview" || selected == g
 					select g)
 				{
@@ -1495,12 +1525,12 @@ public partial class Library : Window
 					List<Entry> list2 = list.Where(predicate).ToList();
 					if (string.IsNullOrWhiteSpace(search.Text))
 					{
-						AddAppFolderSection(p.State.AppFolders.Where((AppFolder f) => f.Group == group), group + " · 文件夹");
+						AddAppFolderSection(p.State.AppFolders.Where((AppFolder f) => f.Group == group), group + " · 文件夹", selected == "全部" && p.State.IncludeHiddenInAllApps);
 						list2 = list2.Where((Entry a) => string.IsNullOrEmpty(a.FolderId)).ToList();
 					}
 					if (list2.Count > 0 || (selected == group && !p.State.AppFolders.Any((AppFolder f) => f.Group == group)))
 					{
-						AddSection(group, list2, canOpen: true);
+						AddSection(group, list2, canOpen: !searching && p.State.IsGroupEnabled(group));
 					}
 				}
 			}
@@ -1529,16 +1559,16 @@ public partial class Library : Window
 
 	private HashSet<Entry> AddPinnedArea()
 	{
-		var entries = p.State.OrderedEntries(p.State.Apps.Where(a => p.State.IsVisible(a) && a.TopPinned)).ToList();
-		if (entries.Count > 0) AddSection("置顶应用", entries, false);
+		var entries = p.State.OrderedPins().Where(p.State.IsVisible).ToList();
+		if (entries.Count > 0) AddSection("置顶应用", entries, false, pinnedArea: true);
 		return new HashSet<Entry>(entries);
 	}
-	private void AddSection(string name, List<Entry> members, bool canOpen, string description = null)
+	private void AddSection(string name, List<Entry> members, bool canOpen, string description = null, bool pinnedArea = false)
 	{
 		StackPanel stackPanel = new StackPanel
 		{
 			Tag = name,
-			Margin = new Thickness(0.0, 0.0, 0.0, 20.0)
+			Margin = new Thickness(0.0, pinnedArea ? 24.0 : 0.0, 0.0, 20.0)
 		};
 		DockPanel dockPanel = new DockPanel
 		{
@@ -1584,7 +1614,7 @@ public partial class Library : Window
 		};
 		frameworkElement2.Margin = new Thickness(0.0, 0.0, 9.0, 0.0);
 		stackPanel3.Children.Add(frameworkElement2);
-		TextBlock textBlock = UI.Text(name, 15.0, UI.Ink);
+		TextBlock textBlock = UI.Text(Config.GroupDisplayName(name), 15.0, UI.Ink);
 		textBlock.FontWeight = FontWeights.SemiBold;
 		stackPanel3.Children.Add(textBlock);
 		TextBlock textBlock2 = UI.Text(members.Count.ToString(), 12.0, UI.Muted);
@@ -1600,7 +1630,7 @@ public partial class Library : Window
 		button2.Padding = new Thickness(0.0, 6.0, 0.0, 6.0);
 		button2.HorizontalContentAlignment = System.Windows.HorizontalAlignment.Left;
 		dockPanel.Children.Add(button2);
-		stackPanel.Children.Add(dockPanel);
+		if (!pinnedArea) stackPanel.Children.Add(dockPanel);
 		if (description != null)
 		{
 			TextBlock textBlock3 = UI.Text(description, 12.0, UI.Muted);
@@ -1608,7 +1638,7 @@ public partial class Library : Window
 			textBlock3.Margin = new Thickness(23.0, 0.0, 0.0, (members.Count > 0) ? 14 : 0);
 			stackPanel.Children.Add(textBlock3);
 		}
-		if (!p.State.CollapsedGroups.Contains(name) || !string.IsNullOrWhiteSpace(search.Text))
+		if (pinnedArea || !p.State.CollapsedGroups.Contains(name) || !string.IsNullOrWhiteSpace(search.Text))
 		{
 			if (p.State.LibraryListView && name != "置顶应用")
 			{
@@ -1627,7 +1657,7 @@ public partial class Library : Window
 			}
 			else
 			{
-				WrapPanel wrapPanel = (canOpen ? new ReorderPanel(p, this) : new WrapPanel());
+				WrapPanel wrapPanel = ((canOpen || pinnedArea) ? new ReorderPanel(p, this, pinnedArea, selected == "全部") : new WrapPanel());
 				foreach (Entry member2 in members)
 				{
 					if (wrapPanel is ReorderPanel reorderPanel)
@@ -1654,7 +1684,7 @@ public partial class Library : Window
 		}
 		selectedCard = card;
 		card.Background = FluentTheme.Selected;
-		card.BorderBrush = UI.Accent;
+		card.BorderBrush = FluentTheme.Line;
 		card.Focus();
 		selectedEntryMac = card.Tag as Entry;
 		RenderInspectorMac();
@@ -1727,6 +1757,10 @@ public partial class Library : Window
 
 	private void Keys(object sender, System.Windows.Input.KeyEventArgs e)
 	{
+		if (e.Key == Key.F5)
+		{
+			p.Scan(); e.Handled = true; return;
+		}
 		if (e.Key == Key.Escape && DismissFromEscape())
 		{
 			e.Handled = true;
@@ -1829,10 +1863,6 @@ public partial class Library : Window
 		stackPanel3.Children.Add(ActionLink("\ue774", "添加网站", delegate
 		{
 			Modal(AddWebsite);
-		}));
-		stackPanel3.Children.Add(ActionLink("\ue710", "新建分类", delegate
-		{
-			Modal(NewGroup);
 		}));
 		stackPanel.Children.Add(PanelCard(stackPanel3));
 		recentPanel = new StackPanel();
@@ -2312,6 +2342,36 @@ public partial class Library : Window
 				DragMove();
 			}
 		};
+		// Keep command handlers for context menus and shortcuts, but expose only
+		// search and add in the title row.
+		DetachCommandElement(commandSearchFrame);
+		DetachCommandElement(add);
+		top.Children.Clear();
+		center.Margin = new Thickness(24, 10, 18, 12);
+		top.Margin = new Thickness(0, 0, 0, 12);
+		var compact = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, Height = 40,
+			Margin = new Thickness(0) };
+		var searchToggle = CommandButton("search", "搜索", delegate {
+			if (commandSearchFrame.Visibility == Visibility.Visible && string.IsNullOrEmpty(search.Text))
+				commandSearchFrame.Visibility = Visibility.Collapsed;
+			else FocusSearch();
+		});
+		searchToggle.Content = AirStyle.Icon("search", UI.Ink, 18);
+		searchToggle.Width = 36; searchToggle.Height = 36;
+		searchToggle.Padding = new Thickness(0);
+		searchToggle.ToolTip = "搜索 · Ctrl + K";
+		add.Content = AirStyle.Icon("plus", UI.Ink, 18);
+		add.Width = 36; add.Height = 36; add.ToolTip = "新增应用、网站或文件夹";
+		add.Padding = new Thickness(0);
+		compact.Children.Add(searchToggle); compact.Children.Add(add);
+		commandSearchFrame.Visibility = Visibility.Collapsed;
+		commandSearchFrame.VerticalAlignment = VerticalAlignment.Center;
+		commandSearchFrame.Margin = new Thickness(8, 0, 0, 0);
+		compact.Children.Add(commandSearchFrame);
+		search.TextChanged += delegate {
+			if (!string.IsNullOrEmpty(search.Text)) commandSearchFrame.Visibility = Visibility.Visible;
+		};
+		top.Children.Add(compact);
 	}
 
 	private void NavigateCommandHistory(bool forward)
@@ -2413,7 +2473,7 @@ public partial class Library : Window
 			commandBack.IsEnabled = commandHistory.CanBack;
 			commandForward.IsEnabled = commandHistory.CanForward;
 			int num = commandEntries.Count + commandGroups.Count;
-			commandSummary.Text = ((num > 0) ? ("已选 " + num + " 项") : ((CurrentAppFolder != null && string.IsNullOrWhiteSpace(search.Text)) ? (p.State.FolderMembers(CurrentAppFolder).Count((Entry a) => p.State.IsVisible(a) && MatchesSearch(a, search.Text)) + " 个应用") : (OverviewMac ? (p.State.VisibleGroups().Count() + " 个分组") : (p.State.Apps.Count((Entry a) => p.State.IsVisible(a) && MatchesSearch(a, search.Text) && (!string.IsNullOrWhiteSpace(search.Text) || selected == "全部" || selected == "@overview" || (selected == "@favorites" && a.Favorite) || (selected == "@recent" && a.LastLaunchTicks > 0) || p.State.LibraryGroup(a) == selected)) + " 个项目"))));
+			commandSummary.Text = ((num > 0) ? ("已选 " + num + " 项") : ((CurrentAppFolder != null && string.IsNullOrWhiteSpace(search.Text)) ? (p.State.FolderMembers(CurrentAppFolder).Count((Entry a) => EntryVisibleInCurrentView(a) && MatchesSearch(a, search.Text)) + " 个应用") : (OverviewMac ? (p.State.VisibleGroups().Count() + " 个分组") : (p.State.Apps.Count((Entry a) => EntryVisibleInCurrentView(a) && MatchesSearch(a, search.Text) && (!string.IsNullOrWhiteSpace(search.Text) || selected == "全部" || selected == "@overview" || (selected == "@favorites" && a.Favorite) || (selected == "@recent" && a.LastLaunchTicks > 0) || p.State.LibraryGroup(a) == selected)) + " 个项目"))));
 			commandEdit.IsEnabled = commandEntries.Count == 1 || (commandGroups.Count <= 1 && CanEditCommandGroup(EditableCommandGroup));
 			commandMove.IsEnabled = commandEntries.Count > 0 || CommandFolders.Count > 0 || (!IsSelecting && CurrentAppFolder != null);
 			commandRemove.IsEnabled = commandEntries.Count > 0 || commandGroups.Any(CanEditCommandGroup) || CanEditCommandGroup(EditableCommandGroup);
@@ -2445,7 +2505,7 @@ public partial class Library : Window
 			if (IsSelecting)
 			{
 				visibleCard.Background = (flag ? FluentTheme.Selected : FluentTheme.Card);
-				visibleCard.BorderBrush = (flag ? UI.Accent : FluentTheme.Line);
+				visibleCard.BorderBrush = FluentTheme.Line;
 			}
 			if (!(visibleCard.Content is Grid grid))
 			{
@@ -2471,7 +2531,9 @@ public partial class Library : Window
 		{
 			item4.Value.BorderBrush = UI.Accent;
 			item4.Value.BorderThickness = ((IsSelecting && commandGroups.Contains(item4.Key)) ? new Thickness(2.0) : new Thickness(0.0));
-			if (!(item4.Value.Content is Viewbox { Child: Grid child }))
+			Grid child = item4.Value.Content as Grid;
+			if (child == null && item4.Value.Content is Viewbox art) child = art.Child as Grid;
+			if (child == null)
 			{
 				continue;
 			}
@@ -2573,10 +2635,11 @@ public partial class Library : Window
 			menu.Items.Add(menuItem);
 		};
 		obj("plus", "添加应用", AddApplication);
+		obj("folder", "从文件夹导入", ScanFolder);
 		obj("globe", "添加网站", AddWebsite);
 		obj("bookmark", "收藏文件夹", FavoriteFolder);
 		menu.Items.Add(new Separator());
-		obj("folder", "新建分组", NewGroup);
+		
 		TrackContext(menu);
 		menu.Closed += delegate
 		{
@@ -2904,7 +2967,7 @@ public partial class Library : Window
 		button.Margin = new Thickness(0.0, 0.0, 0.0, 14.0);
 		grid.Children.Add(button);
 		List<Entry> list = p.State.OrderedEntries(from a in p.State.FolderMembers(folder)
-			where p.State.IsVisible(a) && MatchesSearch(a, search.Text)
+			where EntryVisibleInCurrentView(a) && MatchesSearch(a, search.Text)
 			select a).ToList();
 		AddSection(folder.Name, list, canOpen: false, "拖入应用可继续添加；移动到所属分组可将应用移出文件夹。");
 		if (list.Count == 0)
@@ -2920,9 +2983,9 @@ public partial class Library : Window
 		return true;
 	}
 
-	private void AddAppFolderSection(IEnumerable<AppFolder> folders, string title)
+	private void AddAppFolderSection(IEnumerable<AppFolder> folders, string title, bool includeHidden = false)
 	{
-		List<AppFolder> list = folders.Where((AppFolder f) => p.State.VisibleGroups().Contains(f.Group)).ToList();
+		List<AppFolder> list = folders.Where((AppFolder f) => includeHidden || p.State.VisibleGroups().Contains(f.Group)).ToList();
 		if (list.Count == 0)
 		{
 			return;
@@ -2939,7 +3002,7 @@ public partial class Library : Window
 		foreach (AppFolder item in list)
 		{
 			string scope = "@folder:" + item.Id;
-			List<Entry> list2 = p.State.FolderMembers(item).Where(p.State.IsVisible).ToList();
+			List<Entry> list2 = p.State.FolderMembers(item).Where(a => includeHidden || p.State.IsVisible(a)).ToList();
 			Grid grid = new Grid();
 			grid.ColumnDefinitions.Add(new ColumnDefinition
 			{
@@ -3485,7 +3548,7 @@ public partial class Library : Window
 			menu.Items.Add(menuItem);
 		};
 		if (p.State.ShowWorkspace) action("@overview", "分组与应用");
-		action("全部", "所有应用");
+		if (p.State.ShowAllAppsEntry) action("全部", "所有应用");
 		action("@favorites", "收藏");
 		action("@recent", "最近使用");
 		menu.Items.Add(new Separator());
@@ -3508,7 +3571,7 @@ public partial class Library : Window
 			bool flag = item.Tag as string == "selected-navigation";
 			item.BorderThickness = (flag ? new Thickness(1.0) : new Thickness(0.0));
 			item.BorderBrush = FluentTheme.Line;
-			item.Background = (flag ? MacGradient(FluentTheme.Dark ? "#303034" : "#FFFFFF", FluentTheme.Dark ? "#242428" : "#F0F0F3") : Brushes.Transparent);
+			item.Background = (flag ? FluentTheme.Selected : Brushes.Transparent);
 			foreach (TextBlock item2 in FindElementsMac<TextBlock>(item))
 			{
 				item2.Foreground = (flag ? UI.Ink : UI.Muted);
@@ -3543,10 +3606,9 @@ public partial class Library : Window
 		AddPinnedArea();
 		AddAppFolderSection(p.State.AppFolders.Where((AppFolder f) => f.InWorkspace), "工作空间文件夹");
 		List<string> list = p.State.VisibleGroups().ToList();
-		UniformGrid uniformGrid = new UniformGrid
+		WrapPanel uniformGrid = new WrapPanel
 		{
-			Columns = Math.Max(2, Math.Min(5, (int)((((base.ActualWidth > 0.0) ? base.ActualWidth : base.Width) - leftColumn.Width.Value - 64.0) / 250.0))),
-			Margin = new Thickness(-9.0, 4.0, -9.0, 0.0)
+			Margin = new Thickness(-7.2, 4.0, -7.2, 0.0)
 		};
 		foreach (string item in list)
 		{
@@ -3565,7 +3627,7 @@ public partial class Library : Window
 		UpdateCommandBar();
 	}
 
-	private Viewbox FolderArtMac(string group)
+	private FrameworkElement FolderArtMac(string group)
 	{
 		bool flag = IsSelecting && commandGroups.Contains(group);
 		List<Entry> list = p.State.Apps.Where((Entry a) => p.State.IsVisible(a) && p.State.LibraryGroup(a) == group).ToList();
@@ -3628,34 +3690,32 @@ public partial class Library : Window
 		grid.Children.Add(element2);
 		StackPanel stackPanel2 = new StackPanel
 		{
-			Margin = new Thickness(22.0, 109.0, 16.0, 0.0),
+			Margin = new Thickness(20.0, 96.0, 16.0, 0.0),
 			IsHitTestVisible = false
 		};
 		Brush color = (flag ? Brushes.White : UI.Ink);
-		TextBlock textBlock = UI.Text(group, 18.0, color);
+		TextBlock textBlock = UI.Text(Config.GroupDisplayName(group), 16.0, color);
 		textBlock.FontWeight = FontWeights.SemiBold;
 		textBlock.TextTrimming = TextTrimming.CharacterEllipsis;
 		stackPanel2.Children.Add(textBlock);
-		TextBlock textBlock2 = UI.Text(list.Count + " 个应用", 13.0, flag ? UI.Brush("#F4F8FF") : UI.Muted);
-		textBlock2.Margin = new Thickness(0.0, 6.0, 0.0, 0.0);
-		stackPanel2.Children.Add(textBlock2);
-		int num = list.Count((Entry a) => a.Favorite);
-		TextBlock textBlock3 = UI.Text((list.Count == 0) ? "等待添加" : ((num > 0) ? (num + " 个收藏") : "应用与快捷入口"), 11.0, flag ? UI.Brush("#EEF5FF") : UI.Muted);
-		textBlock3.Margin = new Thickness(0.0, 17.0, 0.0, 0.0);
-		stackPanel2.Children.Add(textBlock3);
-		grid.Children.Add(stackPanel2);
-		return new Viewbox
+		var art = new Viewbox
 		{
 			Child = grid,
 			Stretch = Stretch.Uniform,
 			HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch
 		};
+		// Scale folder artwork only. Text stays at native pixel-aligned DIP size.
+		var face = new Grid { UseLayoutRounding = true, SnapsToDevicePixels = true };
+		face.Children.Add(art);
+		face.Children.Add(stackPanel2);
+		return face;
 	}
 
 	private System.Windows.Controls.Button FolderCardMac(string group)
 	{
 		int num = p.State.Apps.Count((Entry a) => p.State.IsVisible(a) && p.State.LibraryGroup(a) == group);
-		Viewbox content = FolderArtMac(group);
+		bool minimal = p.State.WorkspaceFolderStyle == "minimal";
+		FrameworkElement content = minimal ? WorkspaceCards.Minimal(p.State, group) : FolderArtMac(group);
 		System.Windows.Controls.Button button = UI.Button("", delegate
 		{
 			HandleCommandGroupClick(group);
@@ -3664,9 +3724,10 @@ public partial class Library : Window
 		button.Padding = new Thickness(0.0);
 		button.BorderThickness = new Thickness(0.0);
 		button.Background = Brushes.Transparent;
-		button.Margin = new Thickness(9.0, 9.0, 9.0, 17.0);
+		button.Margin = new Thickness(7.2, 7.2, 7.2, 13.6);
 		button.Tag = group;
-		button.Height = 228.0;
+		button.Width = 200.0;
+		button.Height = minimal ? 144.0 : 182.4;
 		button.HorizontalContentAlignment = System.Windows.HorizontalAlignment.Stretch;
 		button.ToolTip = group + " · " + num + " 个应用 · 单击打开";
 		button.Effect = new DropShadowEffect
@@ -3729,7 +3790,7 @@ public partial class Library : Window
 		AppFolder appFolder = ((commandGroups.Count == 1) ? p.State.FindAppFolder(commandGroups.First()) : ((selectedEntryMac == null && commandEntries.Count == 0) ? CurrentAppFolder : null));
 		string group = ((appFolder != null) ? appFolder.Group : ((selectedEntryMac != null) ? p.State.LibraryGroup(selectedEntryMac) : ((commandGroups.Count == 1) ? commandGroups.First() : ((selected.StartsWith("@") || selected == "全部") ? null : selected))));
 		List<Entry> list = ((appFolder != null) ? (from a in p.State.FolderMembers(appFolder)
-			where p.State.IsVisible(a) && MatchesSearch(a, search.Text)
+			where EntryVisibleInCurrentView(a) && MatchesSearch(a, search.Text)
 			select a).ToList() : ((commandEntries.Count > 0) ? commandEntries.ToList() : p.State.Apps.Where((Entry a) => p.State.IsVisible(a) && (group == null || p.State.LibraryGroup(a) == group) && (commandGroups.Count < 2 || commandGroups.Contains(p.State.LibraryGroup(a))) && MatchesSearch(a, search.Text) && (selected != "@favorites" || a.Favorite) && (selected != "@recent" || a.LastLaunchTicks > 0)).ToList()));
 		TextBlock textBlock2 = UI.Text((appFolder != null) ? appFolder.Name : ((selectedEntryMac != null) ? UI.EntryName(selectedEntryMac) : ((commandEntries.Count > 1) ? ("已选 " + commandEntries.Count + " 个应用") : ((commandGroups.Count > 1) ? ("已选 " + commandGroups.Count + " 个分组") : (group ?? ((selected == "@favorites") ? "我的收藏" : ((selected == "@recent") ? "最近使用" : (OverviewMac ? "分组与应用" : "全部应用"))))))), 16.0, UI.Ink);
 		textBlock2.FontWeight = FontWeights.SemiBold;

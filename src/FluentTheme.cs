@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Windows;
@@ -131,29 +131,11 @@ public static class FluentTheme
 		Set(Sidebar, Dark ? "#171719" : "#F8F8FA");
 		Set(Card, Dark ? "#1C1C1C" : "#FFFFFF");
 		Set(Line, Dark ? "#363636" : "#E5E5EA");
-		Set(Selected, Dark ? "#292134" : "#F2EEF9");
+		Set(Selected, Dark ? "#303030" : "#EEEEEE");
 		Set(UI.Ink, Dark ? "#EEEAF4" : "#1D1D1F");
 		Set(UI.Muted, Dark ? "#C0B8CC" : "#777982");
-		Set(UI.Accent, Dark ? "#B39AE7" : "#7B5BD1");
+		Set(UI.Accent, Dark ? "#B8B8B8" : "#666666");
 		Set(UI.Panel, Dark ? "#1C1C1C" : "#FAFAFC");
-		string value = (Application.Current as Program)?.State.AccentHex;
-		if (!string.IsNullOrEmpty(value))
-		{
-			try
-			{
-				Color value2 = (Color)ColorConverter.ConvertFromString(value);
-				if (Dark)
-				{
-					value2 = Color.FromRgb((byte)((double)(int)value2.R * 0.6 + 102.0), (byte)((double)(int)value2.G * 0.6 + 102.0), (byte)((double)(int)value2.B * 0.6 + 102.0));
-				}
-				colors[UI.Accent].Value = value2;
-				double num = (Dark ? 0.16 : 0.09);
-				colors[Selected].Value = Color.FromRgb((byte)((double)(int)Card.Color.R * (1.0 - num) + (double)(int)value2.R * num), (byte)((double)(int)Card.Color.G * (1.0 - num) + (double)(int)value2.G * num), (byte)((double)(int)Card.Color.B * (1.0 - num) + (double)(int)value2.B * num));
-			}
-			catch
-			{
-			}
-		}
 		ConfigureResources();
 	}
 

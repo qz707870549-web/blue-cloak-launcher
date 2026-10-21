@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Automation;
@@ -33,7 +33,7 @@ public static class AirSettings
 		textBlock.TextWrapping = TextWrapping.Wrap;
 		textBlock.Margin = new Thickness(0.0, 0.0, 0.0, 24.0);
 		stackPanel.Children.Add(textBlock);
-		StackPanel stackPanel2 = Section(stackPanel, "外观", "黑白灰界面，清晰的高亮与操作状态。");
+		StackPanel stackPanel2 = Section(stackPanel, "外观", "黑白灰界面，清晰的文字与操作状态。");
 		stackPanel2.Children.Add(Label("界面主题"));
 		UniformGrid modes = new UniformGrid
 		{
@@ -80,54 +80,7 @@ public static class AirSettings
 			Padding = new Thickness(4.0),
 			Margin = new Thickness(0.0, 8.0, 0.0, 18.0)
 		});
-		stackPanel2.Children.Add(Label("高亮色"));
-		WrapPanel palettes = new WrapPanel
-		{
-			Margin = new Thickness(0.0, 8.0, 0.0, 2.0)
-		};
-		string[] labels = new string[5] { "紫色", "蓝色", "绿色", "琥珀", "玫瑰" };
-		string[] colors = new string[5] { "#7b5bd1", "#316dc6", "#26765b", "#9b5e1e", "#ad426d" };
-		Action refreshColors = null;
-		refreshColors = delegate
-		{
-			palettes.Children.Clear();
-			for (int i = 0; i < colors.Length; i++)
-			{
-				string color = colors[i];
-				StackPanel stackPanel5 = new StackPanel
-				{
-					Orientation = Orientation.Horizontal
-				};
-				stackPanel5.Children.Add(new Border
-				{
-					Width = 12.0,
-					Height = 12.0,
-					CornerRadius = new CornerRadius(4.0),
-					Background = UI.Brush(color),
-					Margin = new Thickness(0.0, 0.0, 8.0, 0.0),
-					VerticalAlignment = VerticalAlignment.Center
-				});
-				stackPanel5.Children.Add(UI.Text(labels[i], 13.0, UI.Ink));
-				Button button = UI.Button("", delegate
-				{
-					program.State.AccentHex = color;
-					Apply(program);
-					refreshColors();
-					refreshModes();
-				});
-				button.Content = stackPanel5;
-				AutomationProperties.SetName(button, labels[i]);
-				AutomationProperties.SetHelpText(button, "设置全局高亮色");
-				if (program.State.AccentHex == color)
-				{
-					button.Background = FluentTheme.Selected;
-					button.BorderBrush = UI.Accent;
-				}
-				palettes.Children.Add(button);
-			}
-		};
-		refreshColors();
-		stackPanel2.Children.Add(palettes);
+		stackPanel2.Children.Add(WorkspaceStylePicker(program));
 		StackPanel stackPanel3 = Section(stackPanel, "应用库", "用熟悉的方式查找、分类和管理应用。");
 		Toggle(stackPanel3, "默认使用列表视图", "关闭时使用图标卡片，名称过长时可悬停查看。", program.State.LibraryListView, delegate(bool v)
 		{
@@ -138,7 +91,7 @@ public static class AirSettings
 		{
 			Margin = new Thickness(0.0, 12.0, 0.0, 0.0)
 		};
-		wrapPanel.Children.Add(UI.Button("管理分类", manage));
+		wrapPanel.Children.Add(UI.Button("管理分组", manage));
 		wrapPanel.Children.Add(UI.Button("重新识别应用", program.Scan));
 		wrapPanel.Children.Add(UI.Button("导入分组备份", delegate
 		{
@@ -152,7 +105,7 @@ public static class AirSettings
 			program.State.ReduceMotion = v;
 			program.Save();
 		});
-		Toggle(panel, "按 Win 键打开蓝斗篷启动", "单按展开或收起；Win + E、Win + R 等组合键保留。", program.State.WinKeyOpensLibrary, delegate(bool v)
+		Toggle(panel, "按 Win 键打开蓝斗篷启动", "桌面和游戏统一接管单按 Win 键；Win 组合键仍转发给系统。", program.State.WinKeyOpensLibrary, delegate(bool v)
 		{
 			program.State.WinKeyOpensLibrary = v;
 			program.Save();
@@ -166,15 +119,14 @@ public static class AirSettings
 			program.State.ShowWorkspace = v;
 			program.Refresh();
 		});
-		Toggle(panel, "显示系统附带应用", "将 Windows 系统应用显示在应用库中。", program.State.ShowSystemApps, delegate(bool v)
+		Toggle(panel, "隐藏所有桌面图标", "隐藏桌面的应用、文件夹与系统图标；关闭即可恢复，不删除文件。", program.State.HideDesktopIcons, delegate(bool v)
 		{
-			program.State.ShowSystemApps = v;
-			program.Refresh();
-		});
-		Toggle(panel, "显示软件配套工具", "显示辅助工具和后台组件的快捷入口。", program.State.ShowUtilities, delegate(bool v)
-		{
-			program.State.ShowUtilities = v;
-			program.Refresh();
+			if (!DesktopIcons.SetHidden(v))
+			{
+				throw new InvalidOperationException("未能切换 Windows 桌面图标，请确认资源管理器正常运行后重试。");
+			}
+			program.State.HideDesktopIcons = v;
+			program.Save();
 		});
 		StackPanel stackPanel4 = Section(stackPanel, "数据与支持", "可导出单文件分组备份；导入前会自动留存当前配置。");
 		WrapPanel wrapPanel3 = new WrapPanel();
@@ -194,7 +146,7 @@ public static class AirSettings
 			AirStyle.Notice(result, "登录启动");
 		}, !Program.QaMode);
 		stackPanel4.Children.Add(wrapPanel3);
-		TextBlock textBlock2 = UI.Text("蓝斗篷启动  1.3.8 公开版\n启动异常会记录在 data/startup.log。", 12.0, UI.Muted);
+		TextBlock textBlock2 = UI.Text("蓝斗篷启动  1.3.21 公开版\n启动异常会记录在 data/startup.log。", 12.0, UI.Muted);
 		textBlock2.Margin = new Thickness(4.0, 0.0, 0.0, 8.0);
 		stackPanel.Children.Add(textBlock2);
 		window.Content = new ScrollViewer
@@ -219,6 +171,34 @@ public static class AirSettings
 		TextBlock textBlock = UI.Text(text, 14.0, UI.Ink);
 		textBlock.FontWeight = FontWeights.SemiBold;
 		return textBlock;
+	}
+
+	public static FrameworkElement WorkspaceStylePicker(Program program)
+	{
+		var panel = new StackPanel();
+		panel.Children.Add(Label("工作空间分组样式"));
+		var choices = new UniformGrid { Columns = 2, Margin = new Thickness(0, 8, 0, 8) };
+		Action refresh = null;
+		refresh = delegate {
+			choices.Children.Clear();
+			foreach (string id in new[] { "layered", "minimal" })
+			{
+				string style = id;
+				string label = style == "minimal" ? "简约卡片" : "层叠文件夹";
+				var button = UI.Button(label, delegate {
+					program.State.WorkspaceFolderStyle = style;
+					program.Refresh();
+					refresh();
+				});
+				button.Tag = style;
+				button.Background = program.State.WorkspaceFolderStyle == style ? FluentTheme.Selected : FluentTheme.Card;
+				AutomationProperties.SetName(button, label);
+				choices.Children.Add(button);
+			}
+		};
+		refresh();
+		panel.Children.Add(choices);
+		return panel;
 	}
 
 	private static StackPanel Section(StackPanel target, string title, string description)

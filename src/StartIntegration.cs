@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -177,7 +177,7 @@ public sealed partial class StartIntegration : IDisposable
 	{
 		hookThread = GetCurrentThreadId();
 		InstallHook();
-		keyboardHook = SetWindowsHookEx(13, keyboardCallback, GetModuleHandle(null), 0u);
+		InstallKeyboardHook();
 		eventHook = SetWinEventHook(32768u, 32779u, IntPtr.Zero, eventCallback, 0u, 0u, 2u);
 		watchdog = new System.Windows.Forms.Timer
 		{
@@ -185,6 +185,7 @@ public sealed partial class StartIntegration : IDisposable
 		};
 		watchdog.Tick += delegate
 		{
+			InstallKeyboardHook();
 			if (!captured)
 			{
 				InstallHook();
@@ -311,10 +312,8 @@ public sealed partial class StartIntegration : IDisposable
 				}
 				return true;
 			}, IntPtr.Zero);
-			if (result.Count > count)
-			{
-				continue;
-			}
+			// XAML Start buttons can share a host HWND with the entire taskbar.
+			// Their UIA rectangle is authoritative; never refresh it from that HWND.
 			try
 			{
 				AutomationElement automationElement = AutomationElement.FromHandle(item);
@@ -326,14 +325,12 @@ public sealed partial class StartIntegration : IDisposable
 					Rect boundingRectangle = current2.BoundingRectangle;
 					if (!current2.IsOffscreen && !boundingRectangle.IsEmpty && boundingRectangle.Width > 0.0 && boundingRectangle.Height > 0.0)
 					{
-						result.Add(new StartButtonBounds
+						var bounds = AutomationBounds(boundingRectangle);
+						if (bounds != null)
 						{
-							Left = (int)Math.Floor(boundingRectangle.Left),
-							Top = (int)Math.Floor(boundingRectangle.Top),
-							Right = (int)Math.Ceiling(boundingRectangle.Right),
-							Bottom = (int)Math.Ceiling(boundingRectangle.Bottom),
-							Handle = current2.NativeWindowHandle
-						});
+							result.RemoveRange(count, result.Count - count);
+							result.Add(bounds);
+						}
 					}
 				}
 			}
@@ -344,9 +341,21 @@ public sealed partial class StartIntegration : IDisposable
 		return result.ToArray();
 	}
 
+	public static StartButtonBounds AutomationBounds(Rect rectangle)
+	{
+		if (rectangle.IsEmpty || double.IsNaN(rectangle.X) || double.IsInfinity(rectangle.X) ||
+			double.IsNaN(rectangle.Y) || double.IsInfinity(rectangle.Y) ||
+			rectangle.Width <= 0 || rectangle.Height <= 0 || rectangle.Width > 256 || rectangle.Height > 256) return null;
+		return new StartButtonBounds {
+			Left = (int)Math.Floor(rectangle.Left), Top = (int)Math.Floor(rectangle.Top),
+			Right = (int)Math.Ceiling(rectangle.Right), Bottom = (int)Math.Ceiling(rectangle.Bottom),
+			Handle = 0 // Preserve the UIA element rectangle even when its host HWND moves.
+		};
+	}
+
 	private void RefreshButtons()
 	{
-		if (disposed || (uint)(Environment.TickCount - (int)lastRefresh) < (dirty ? 350 : 2000) || Interlocked.Exchange(ref reading, 1) != 0)
+		if (disposed || (uint)(Environment.TickCount - (int)lastRefresh) < (dirty ? 150 : 500) || Interlocked.Exchange(ref reading, 1) != 0)
 		{
 			return;
 		}
@@ -354,10 +363,7 @@ public sealed partial class StartIntegration : IDisposable
 		{
 			dirty = false;
 			StartButtonBounds[] array = Discover();
-			if (array.Length != 0)
-			{
-				buttons = array;
-			}
+			buttons = array;
 			lastRefresh = Environment.TickCount;
 		}
 		catch
@@ -401,7 +407,7 @@ public sealed partial class StartIntegration : IDisposable
 				return CallNextHookEx(hook, code, message, data);
 			}
 			MouseData mouseData = (MouseData)Marshal.PtrToStructure(data, typeof(MouseData));
-			if (num == 513 || num == 516 || num == 519) winPolicy.Cancel();
+			if (num == 513 || num == 516 || num == 519) { fullscreenKeys.Cancel(); }
 			if (num == 514 && captured)
 			{
 				captured = false;

@@ -7,7 +7,8 @@ public sealed partial class StartIntegration
 {
     private readonly MouseCallback keyboardCallback;
     private IntPtr keyboardHook;
-    private readonly WinKeyPolicy winPolicy = new WinKeyPolicy();
+    private readonly FullscreenWinKeyPolicy fullscreenKeys = new FullscreenWinKeyPolicy();
+    private int lastKeyboardEvent;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct KeyboardData { public uint Key, Scan, Flags, Time; public UIntPtr Extra; }
@@ -22,11 +23,43 @@ public sealed partial class StartIntegration
     private static extern uint SendInput(uint count, Input[] inputs, int size);
     [DllImport("user32.dll")]
     private static extern short GetAsyncKeyState(int key);
+    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+
+    private void InstallKeyboardHook()
+    {
+        // Replace on the hook thread, never during a held Win gesture.
+        if (disposed || GetAsyncKeyState(0x5b) < 0 || GetAsyncKeyState(0x5c) < 0) return;
+        if (fullscreenKeys.IsHandling)
+        {
+            if (unchecked(Environment.TickCount - lastKeyboardEvent) < 12000) return;
+            fullscreenKeys.Reset();
+        }
+        IntPtr next = SetWindowsHookEx(13, keyboardCallback, GetModuleHandle(null), 0u);
+        if (next == IntPtr.Zero) return;
+        IntPtr previous = keyboardHook; keyboardHook = next;
+        if (previous != IntPtr.Zero) UnhookWindowsHookEx(previous);
+
+    }
+
+    private void OpenFromKeyboard()
+    {
+        program.Dispatcher.BeginInvoke((Action)(() =>
+        {
+            if (!disposed && program.State.WinKeyOpensLibrary)
+            {
+                CrashLog.Write("start-request-key");
+                if (program.StartGuard?.Pending ?? false) program.OpenStartSurface(KeyboardStartButton());
+                else program.ToggleStartSurface(KeyboardStartButton());
+            }
+        }));
+    }
 
     private static Input KeyEvent(ushort key, uint flags)
     {
-        return new Input { Type = 1, Data = new InputUnion { Keyboard = new KeyInput { Key = key, Flags = flags } } };
+        return new Input { Type = 1, Data = new InputUnion { Keyboard = new KeyInput { Key = key, Flags = flags, Extra = KeyboardInputIdentity.Tag } } };
     }
+
+    internal StartButtonBounds ForegroundStartButton() => KeyboardStartButton();
 
     private IntPtr OnKeyboard(int code, IntPtr message, IntPtr data)
     {
@@ -37,33 +70,34 @@ public sealed partial class StartIntegration
             if (msg != 0x100 && msg != 0x101 && msg != 0x104 && msg != 0x105)
                 return CallNextHookEx(keyboardHook, code, message, data);
             var key = (KeyboardData)Marshal.PtrToStructure(data, typeof(KeyboardData));
+            if (KeyboardInputIdentity.IsOwn(key.Extra)) return CallNextHookEx(keyboardHook, code, message, data);
+            lastKeyboardEvent = Environment.TickCount;
+            bool down = msg == 0x100 || msg == 0x104;
             bool modifier = GetAsyncKeyState(0x10) < 0 || GetAsyncKeyState(0x11) < 0 || GetAsyncKeyState(0x12) < 0;
-            if (winPolicy.Process((int)key.Key, msg == 0x100 || msg == 0x104,
-                (key.Flags & 0x10) != 0, program.State.WinKeyOpensLibrary, modifier))
+            bool handling = fullscreenKeys.IsHandling;
+            // Legacy policy parameter stays true: capture never depends on fullscreen detection.
+            var action = fullscreenKeys.Process((int)key.Key, down, false, program.State.WinKeyOpensLibrary, true, modifier);
+            if (action == FullscreenWinAction.Toggle) { OpenFromKeyboard(); return new IntPtr(1); }
+            if (action == FullscreenWinAction.Suppress) return new IntPtr(1);
+            if (action == FullscreenWinAction.ReplayChord)
             {
-                // A harmless unassigned key masks the native Start action. Replay
-                // Win-up in the same batch so Windows never retains a held Win key.
-                var inputs = new[] { KeyEvent(0xe8, 0), KeyEvent(0xe8, 2), KeyEvent((ushort)key.Key, 3) };
-                uint sent = SendInput(3, inputs, Marshal.SizeOf(typeof(Input)));
-                if (sent == 3)
-                {
-                    program.Dispatcher.BeginInvoke((Action)(() =>
-                    {
-                        if (!disposed && program.State.WinKeyOpensLibrary) program.ToggleStartSurface(KeyboardStartButton());
-                    }));
-                    return new IntPtr(1);
-                }
-                // On injection failure pass the physical release through.
-                if (sent == 1) SendInput(1, new[] { KeyEvent(0xe8, 2) }, Marshal.SizeOf(typeof(Input)));
+                var chord = new[] { KeyEvent((ushort)fullscreenKeys.PendingWin, 1), KeyEvent((ushort)key.Key, key.Flags & 1) };
+                uint sent = SendInput(2, chord, Marshal.SizeOf(typeof(Input)));
+                if (sent > 0) fullscreenKeys.MarkReplayed();
+                if (sent == 2) return new IntPtr(1);
+                program.Dispatcher.BeginInvoke((Action)(() => CrashLog.Write("fullscreen-win-chord-input-blocked")));
+                return CallNextHookEx(keyboardHook, code, message, data);
             }
+            if (handling || fullscreenKeys.IsHandling) return CallNextHookEx(keyboardHook, code, message, data);
         }
-        catch { winPolicy.Cancel(); }
+        catch { fullscreenKeys.Cancel(); }
         return CallNextHookEx(keyboardHook, code, message, data);
     }
 
     private StartButtonBounds KeyboardStartButton()
     {
-        var screen = System.Windows.Forms.Screen.FromPoint(System.Windows.Forms.Cursor.Position);
+        var foreground = GetForegroundWindow();
+        var screen = foreground == IntPtr.Zero ? System.Windows.Forms.Screen.FromPoint(System.Windows.Forms.Cursor.Position) : System.Windows.Forms.Screen.FromHandle(foreground);
         foreach (var button in buttons)
             if (screen.Bounds.Contains(button.Left, button.Top)) return button;
         return null; // Same monitor, centered above its taskbar if discovery is pending.

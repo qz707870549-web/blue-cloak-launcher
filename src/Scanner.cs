@@ -197,7 +197,7 @@ public static class Scanner
 		action("Windows 设置", "ms-settings:", null);
 		result.AddRange(SystemShortcuts.Entries());
 		result.AddRange(CoreSystemApps.Fallbacks(result));
-		return CoreSystemApps.Deduplicate(DiscoveryRules.Normalize(result));
+		return ApplicationIdentity.Unique(CoreSystemApps.Deduplicate(DiscoveryRules.Normalize(result)));
 	}
 
 	private static IEnumerable<string> Files(string p, int depth, int max)

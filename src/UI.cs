@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -103,7 +103,7 @@ public static class UI
 			Property = UIElement.IsKeyboardFocusedProperty,
 			Value = true
 		};
-		trigger2.Setters.Add(new Setter(Border.BorderBrushProperty, new DynamicResourceExtension("Luma.Accent"), "surface"));
+		trigger2.Setters.Add(new Setter(Border.BorderBrushProperty, new DynamicResourceExtension("Luma.Line"), "surface"));
 		trigger2.Setters.Add(new Setter(Border.BorderThicknessProperty, new Thickness(1.0), "surface"));
 		obj.Triggers.Add(trigger2);
 		Trigger trigger3 = new Trigger
@@ -192,7 +192,11 @@ public static class UI
 		w.FontFamily = AirStyle.Font;
 		w.Foreground = Ink;
 		w.UseLayoutRounding = true;
+		w.SnapsToDevicePixels = true;
 		TextOptions.SetTextFormattingMode(w, TextFormattingMode.Display);
+		TextOptions.SetTextRenderingMode(w, TextRenderingMode.ClearType);
+		TextOptions.SetTextHintingMode(w, TextHintingMode.Fixed);
+		RenderOptions.SetClearTypeHint(w, ClearTypeHint.Enabled);
 	}
 
 	public static FrameworkElement Icon(Entry a, double size)
@@ -768,23 +772,6 @@ public static class UI
 			}
 		};
 		button.ContextMenu = menu;
-		Button more = Glyph("\ue712", "更多操作", delegate
-		{
-			menu.PlacementTarget = button;
-			menu.IsOpen = true;
-		});
-		more.Width = 24.0;
-		more.Height = 24.0;
-		more.FontSize = 12.0;
-		more.HorizontalAlignment = HorizontalAlignment.Right;
-		more.VerticalAlignment = VerticalAlignment.Top;
-		more.Opacity = 0.0;
-		more.Margin = new Thickness(0.0, -4.0, -4.0, 0.0);
-		if (libraryListView)
-		{
-			Grid.SetColumn(more, 1);
-		}
-		grid.Children.Add(more);
 		button.Click += delegate(object sender, RoutedEventArgs e)
 		{
 			if (e.OriginalSource == button && p.Library != null && p.Library.CanOpenShortcut && !p.Library.HandleCommandAppClick(app))
@@ -794,18 +781,6 @@ public static class UI
 				{
 					p.Launch(app);
 				}
-			}
-		};
-		more.GotKeyboardFocus += delegate
-		{
-			more.BeginAnimation(UIElement.OpacityProperty, null);
-			more.Opacity = 1.0;
-		};
-		more.LostKeyboardFocus += delegate
-		{
-			if (!button.IsMouseOver)
-			{
-				more.Opacity = 0.0;
 			}
 		};
 		button.MouseEnter += delegate
@@ -820,12 +795,8 @@ public static class UI
 					}
 				});
 				shadow.BeginAnimation(DropShadowEffect.OpacityProperty, new DoubleAnimation(0.05, TimeSpan.FromMilliseconds(140.0)));
-				more.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(1.0, TimeSpan.FromMilliseconds(140.0)));
 			}
-			else
-			{
-				more.Opacity = 1.0;
-			}
+
 		};
 		button.MouseLeave += delegate
 		{
@@ -834,12 +805,8 @@ public static class UI
 			{
 				translateTransform?.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(0.0, TimeSpan.FromMilliseconds(140.0)));
 				shadow.BeginAnimation(DropShadowEffect.OpacityProperty, new DoubleAnimation(FluentTheme.Dark ? 0.12 : 0.05, TimeSpan.FromMilliseconds(140.0)));
-				more.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0.0, TimeSpan.FromMilliseconds(140.0)));
 			}
-			else
-			{
-				more.Opacity = 0.0;
-			}
+
 		};
 		if (p.Library != null)
 		{

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -26,6 +26,7 @@ public partial class Program : System.Windows.Application
 	
 
 	public StartIntegration StartIntegration;
+	public NativeStartGuard StartGuard;
 
 	public bool Review;
 
@@ -78,12 +79,17 @@ public partial class Program : System.Windows.Application
 		{
 			Environment.ExitCode = 1;
 			CrashLog.Write("startup-failed", ex);
-			if (!args.Contains("--background")) System.Windows.MessageBox.Show("蓝斗篷启动未能启动。原配置未覆盖。\n请查看 " + Path.Combine(DataDir, "startup.log") + "\n" + ex.Message, "蓝斗篷启动 · 启动诊断");
+			if (!args.Contains("--background") && !args.Contains("--uninstall-cleanup")) System.Windows.MessageBox.Show("蓝斗篷启动未能启动。原配置未覆盖。\n请查看 " + Path.Combine(DataDir, "startup.log") + "\n" + ex.Message, "蓝斗篷启动 · 启动诊断");
 		}
 	}
 
 	private static void MainCore(string[] args)
 	{
+		if (args.Contains("--uninstall-cleanup"))
+		{
+			StartupRegistration.RemoveForExecutable(Process.GetCurrentProcess().MainModule.FileName);
+			return;
+		}
 		DataDir = ConfigStore.DataDirectory(AppDomain.CurrentDomain.BaseDirectory, DataDir);
 		ConfigPath = Path.Combine(DataDir, "settings.json");
 		ConfigStore.InitializePersonalData(AppDomain.CurrentDomain.BaseDirectory, ConfigPath);
@@ -174,6 +180,8 @@ public partial class Program : System.Windows.Application
 			GroupTemplate.Load(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "group-template.json"))?.Apply(State);
 		}
 		State.Normalize();
+		State.RemoveLegacyDefaultGroups();
+		State.EnsureUngroupedCategory();
 		SystemShortcuts.Ensure(State);
 		CoreSystemApps.Reveal(State);
 		if (State.StartIntegrationVersion < 2)
@@ -205,6 +213,7 @@ public partial class Program : System.Windows.Application
 			try
 			{
 				StartIntegration = new StartIntegration(this);
+				StartGuard = new NativeStartGuard(this);
 			}
 			catch (Exception exception2)
 			{
@@ -268,6 +277,8 @@ public partial class Program : System.Windows.Application
 		{
 			ImportCoreSystemApps();
 		}
+		StartAutoDiscovery();
+		if (!QaMode && State.HideDesktopIcons) DesktopIcons.SetHidden(true);
 	}
 
 	private async void ImportCoreSystemApps()
@@ -312,7 +323,7 @@ public partial class Program : System.Windows.Application
 		try
 		{
 			List<Entry> found = await Task.Run(() => Scanner.Scan(State.Folders.ToList()));
-			State.MergeScan(found);
+			State.MergeDiscovered(found);
 			CoreSystemApps.Reveal(State);
 			State.SystemEntriesVersion = 1;
 			if (!State.Apps.Any((Entry x) => x.Pinned))
@@ -399,6 +410,7 @@ public partial class Program : System.Windows.Application
 
 	private void OpenLibraryAt(StartButtonBounds button)
 	{
+		RequestDiscoveryOnOpen();
 		startSession = openingFromStart || (button != null && State.ReplaceStartMenu);
 		CrashLog.Write("open-library");
 		if (Library == null)
@@ -415,7 +427,7 @@ public partial class Program : System.Windows.Application
 		{
 			menu.Render();
 			menu.Activate();
-			menu.FocusSearch();
+			menu.FocusSearch(false);
 			return;
 		}
 		int revision = menu.BeginOpening();
@@ -440,7 +452,7 @@ public partial class Program : System.Windows.Application
 			AirStyle.Enter((FrameworkElement)menu.Content);
 			CrashLog.Write("library-visible");
 			menu.Activate();
-			menu.FocusSearch();
+			menu.FocusSearch(false);
 			base.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, (Action)delegate
 			{
 				if (Library != menu || !menu.IsVisible || !menu.IsOpening(revision))
@@ -456,7 +468,7 @@ public partial class Program : System.Windows.Application
 					menu.RefreshRestoredLayout();
 					if (menu.WindowState != WindowState.Minimized)
 					{
-						menu.FocusSearch();
+						menu.FocusSearch(false);
 					}
 				}
 				finally
@@ -474,6 +486,7 @@ public partial class Program : System.Windows.Application
 
 	public void DismissLibrary()
 	{
+		StartGuard?.Cancel();
 		if (Library != null && Library.IsVisible && !Library.IsInteracting)
 		{
 			CrashLog.Write("dismiss-explicit");
@@ -521,6 +534,12 @@ public partial class Program : System.Windows.Application
 	}
 
 	private bool openingFromStart;
+	public void OpenStartSurface(StartButtonBounds button)
+	{
+		openingFromStart = true;
+		try { OpenLibraryAt(button); }
+		finally { openingFromStart = false; }
+	}
 	public void ToggleStartSurface(StartButtonBounds button)
 	{
 		if (Library != null && WindowSizePolicy.ToggleCloses(Library.IsVisible, Library.WindowState)) { DismissLibrary(); return; }
@@ -539,13 +558,13 @@ public partial class Program : System.Windows.Application
 
 	public void AutoDismissLibrary(Library menu)
 	{
-		if (Review || QaMode)
+		if (Review || QaMode || (StartGuard?.Pending ?? false))
 		{
 			return;
 		}
 		base.Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)delegate
 		{
-			if (Library == menu && menu.IsVisible && menu.WindowState != WindowState.Minimized && !menu.IsInteracting && !menu.IsActive && !base.Windows.Cast<Window>().Any((Window w) => w != menu && w.IsActive))
+			if (!(StartGuard?.Pending ?? false) && Library == menu && menu.IsVisible && menu.WindowState != WindowState.Minimized && !menu.IsInteracting && !menu.IsActive && !base.Windows.Cast<Window>().Any((Window w) => w != menu && w.IsActive))
 			{
 				DismissLibrary();
 			}
@@ -568,6 +587,7 @@ public partial class Program : System.Windows.Application
 	{
 		State.Normalize();
 		Save();
+		if (discoveryTimer != null) RefreshDiscoveryWatchers();
 		
 		if (Library != null)
 		{
@@ -664,6 +684,8 @@ public partial class Program : System.Windows.Application
 			base.OnExit(e);
 			return;
 		}
+		StartGuard?.Dispose();
+		StopAutoDiscovery();
 		if (StartIntegration != null)
 		{
 			StartIntegration.Dispose();

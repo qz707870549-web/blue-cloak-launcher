@@ -10,6 +10,37 @@ namespace Luma;
 
 public static class StartupRegistration
 {
+    public static bool CommandTargetsExecutable(string command, string executable)
+    {
+        if (string.IsNullOrWhiteSpace(command) || string.IsNullOrWhiteSpace(executable)) return false;
+        var match = System.Text.RegularExpressions.Regex.Match(command, "^\\s*(?:\"(?<path>[^\"]+)\"|(?<path>\\S+))");
+        return match.Success && string.Equals(match.Groups["path"].Value.Replace('/', '\\'), executable.Replace('/', '\\'), StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static void RemoveForExecutable(string executable)
+    {
+        if (Program.QaMode) throw new InvalidOperationException("离线验证模式不能修改系统启动项。");
+        // Do not remove startup entries belonging to another portable installation.
+        using (var key = Registry.CurrentUser.OpenSubKey(RunPath, true))
+            if (key != null) foreach (var name in new[] { Name, "LumaAIRI", "LumaDock" })
+                if (CommandTargetsExecutable(key.GetValue(name) as string, executable)) key.DeleteValue(name, false);
+        object service = null, folder = null, task = null;
+        try
+        {
+            service = Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service"));
+            dynamic scheduler = service; scheduler.Connect(); folder = scheduler.GetFolder("\\"); dynamic root = folder;
+            try { task = root.GetTask(Name); }
+            catch (COMException error) when ((uint)error.HResult == 0x80070002 || (uint)error.HResult == 0x8004130F) { return; }
+            dynamic registered = task;
+            string path = Convert.ToString(registered.Definition.Actions.Item(1).Path);
+            if (string.Equals(path, executable, StringComparison.OrdinalIgnoreCase)) root.DeleteTask(Name, 0);
+        }
+        finally
+        {
+            foreach (var item in new[] { task, folder, service }) if (item != null && Marshal.IsComObject(item)) Marshal.FinalReleaseComObject(item);
+        }
+    }
+
     const string RunPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     const string Name = "BlueCloakLauncher";
     public static bool LegacyEnabled()

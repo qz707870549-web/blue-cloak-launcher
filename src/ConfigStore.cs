@@ -122,6 +122,7 @@ public static class ConfigStore
 			{
 				app.Group = entry.Group;
 				app.TopPinned = entry.TopPinned;
+				app.PinnedSortOrder = entry.PinnedSortOrder;
 				app.SortOrder = entry.SortOrder;
 				if (!string.IsNullOrEmpty(entry.CustomIcon))
 				{
